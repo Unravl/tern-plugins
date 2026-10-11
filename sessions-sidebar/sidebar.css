@@ -10,7 +10,7 @@
 	flex-direction: column;
 	gap: 8px;
 	min-width: 0;
-	padding: 4px;
+	padding: 4px 0;
 }
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-toolbar"] {
@@ -101,7 +101,7 @@
 	box-sizing: border-box;
 	min-width: 0;
 	min-height: 48px;
-	padding: 8px;
+	padding: 8px 0 8px 3px;
 	gap: 8px;
 	border-left: 2px solid transparent;
 	border-radius: 4px;
@@ -131,6 +131,7 @@
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-labels"] {
 	min-width: 0;
 	gap: 2px;
+	flex-grow: 1;
 }
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-name"] {
@@ -150,9 +151,10 @@
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-icon"] {
 	display: inline-flex;
 	align-items: center;
-	justify-content: center;
+	justify-content: flex-start;
 	width: 24px;
 	height: 24px;
+	flex-shrink: 0;
 	border-radius: 4px;
 	font-size: 18px;
 	line-height: 24px;
@@ -174,15 +176,13 @@
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-status"] {
 	box-sizing: border-box;
 	display: inline-block;
-	width: 8px;
-	height: 8px;
-	border: 1px solid var(--tc);
-	border-radius: 50%;
+	width: 4px;
+	height: 24px;
+	flex-shrink: 0;
+	align-self: center;
+	border: 0;
+	border-radius: 0;
 	background-color: var(--tc);
-}
-
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-status"][data-tone="muted"] {
-	background-color: transparent;
 }
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-empty"] {
@@ -194,56 +194,6 @@
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] .ico {
 	width: 14px;
 	height: 14px;
-}
-
-/* ---------- reorder grips: shown on hover, and always while moving ---------- */
-/* Opacity, never display, so showing a grip never changes measured widths. The negative
-   margins tuck the grip into the row padding: it costs the labels 12px (OVERLAY_PATH_CELLS). */
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-grip"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"] {
-	box-sizing: border-box;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 12px;
-	height: 24px;
-	margin: 0 -4px;
-	padding: 0;
-	border: 0;
-	border-radius: 3px;
-	background-color: transparent;
-	color: var(--t3);
-	cursor: grab;
-	flex-shrink: 0;
-	opacity: 0;
-	user-select: none;
-}
-
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"] {
-	height: 20px;
-	margin: 0 -2px 0 -4px;
-}
-
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-grip"] .ico,
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"] .ico {
-	width: 12px;
-	height: 12px;
-}
-
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-session"]:hover [data-role="sessions-sidebar-grip"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-current"]:hover [data-role="sessions-sidebar-grip"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-heading"]:hover [data-role="sessions-sidebar-host-grip"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-grip"]:focus-visible,
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"]:focus-visible,
-[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-grip"],
-[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-grip"] {
-	opacity: 1;
-}
-
-[data-role="sessions-sidebar"][data-sidebar-moving=""] [data-role="sessions-sidebar-grip"]:hover,
-[data-role="sessions-sidebar"][data-sidebar-moving=""] [data-role="sessions-sidebar-host-grip"]:hover {
-	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
-	color: var(--t1);
 }
 
 /* ---------- move mode ---------- */
@@ -292,8 +242,6 @@
 }
 
 /* Child buttons carry no actions while moving: they must look inert and defer to their row. */
-[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-grip"],
-[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-grip"],
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-icon"],
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-toggle"],
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"] {

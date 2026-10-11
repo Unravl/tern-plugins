@@ -108,11 +108,11 @@ local function displayPath(path: string): string
 	return path
 end
 
--- Overlay drawers have a fixed 210px path column at 11px monospace (~31 cells; the reorder
--- grip takes 12px), and Tern's own truncation measures the floating pane's cells, not that
--- column. Drop whole leading directories so the meaningful end stays visible; docked mode
--- keeps Tern's native truncation.
-local OVERLAY_PATH_CELLS = 30
+-- Overlay drawers have an approximately 247px path column at 11px monospace; use a
+-- conservative 35-cell budget. Tern's own truncation measures the floating pane's cells,
+-- not that column. Drop whole leading directories so the meaningful end stays visible;
+-- docked mode keeps Tern's native truncation.
+local OVERLAY_PATH_CELLS = 35
 
 local function fitPath(path: string, cells: number): string
 	local length = utf8.len(path) or #path
@@ -288,7 +288,6 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			heading ..= " · " .. host.state
 		end
 		local toggleTitle = (if group.collapsed then "Expand sessions on " else "Collapse sessions on ") .. group.label
-		local hostMoveTitle = "Move " .. group.label
 		local headingActions: { [string]: any } = { menu = hostMenu }
 		local headingProps: { [string]: any } = {
 			key = "heading",
@@ -311,18 +310,6 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			end
 		end
 		local headingChildren: { Node } = {
-			ui.el("button", {
-				key = "grip",
-				role = "sessions-sidebar-host-grip",
-				title = if moving then nil else hostMoveTitle,
-				aria = hostMoveTitle,
-				actions = if moving
-					then nil
-					else { click = addTarget(targets, "move-host", headingId .. ".grip", "move-host", host.id, nil) },
-				shrink = 0,
-			}, {
-				ui.node("icon", { key = "icon", name = "grip" }),
-			}),
 			ui.el("button", {
 				key = "toggle",
 				role = "sessions-sidebar-host-toggle",
@@ -386,17 +373,14 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			if session.locked then
 				label ..= " · locked"
 			end
-			local sessionMoveTitle = "Move " .. session.name
 			local actions: { [string]: any } = { menu = sessionMenu }
 			local rowTitle = label
 			local rowMark: string? = nil
-			local gripActions: { [string]: any }? = nil
 			local iconActions: { [string]: any }? = nil
 			if not moving then
 				if connected then
 					actions.click = addTarget(targets, "switch-session", rowId, "switch", host.id, session.id)
 				end
-				gripActions = { click = addTarget(targets, "move-session", rowId .. ".grip", "move-session", host.id, session.id) }
 				addTarget(targets, "rename-session", iconId, "rename-session", host.id, session.id)
 				addTarget(targets, "move-session", iconId, "move-session", host.id, session.id)
 				addTarget(targets, "reset-icon", iconId, "reset-icon", host.id, session.id)
@@ -414,18 +398,8 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 				rowTitle = "Move here"
 				actions.click = addTarget(targets, "place-session", rowId, "place-session", host.id, session.id)
 			end
-			-- While moving, the grip and icon carry no actions (their right-click reaches the
+			-- While moving, the icon carries no actions (its right-click reaches the
 			-- row's identical menu) so every click lands on the row.
-			local grip = ui.el("button", {
-				key = "grip",
-				role = "sessions-sidebar-grip",
-				title = if moving then nil else sessionMoveTitle,
-				aria = sessionMoveTitle,
-				actions = gripActions,
-				shrink = 0,
-			}, {
-				ui.node("icon", { key = "icon", name = "grip" }),
-			})
 			local iconProps: { [string]: any } = {
 				key = "icon",
 				role = "sessions-sidebar-icon",
@@ -462,7 +436,6 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 				props.tone = "muted"
 			end
 			table.insert(section, with(ui.row({
-				grip,
 				icon,
 				with(ui.col({
 					with(ui.text(label), {

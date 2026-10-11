@@ -4,4 +4,4 @@ description = "Customizable per-host sessions sidebar with icons, paths, activit
 window = "window.luau"
 styles = ["sidebar.css", "drawer.css"]
 schema = 1
-version = "1.4.1"
+version = "1.4.2"
