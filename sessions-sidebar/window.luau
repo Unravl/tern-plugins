@@ -355,32 +355,50 @@ local function setRatio(cx: WindowCx, pane: number, tab: number, target: number)
 	return dockedRatio(cx, pane, tab)
 end
 
--- Always expanded: one width for every tab's docked sidebar. A change in the visible tab is the
+type DockedSidebar = { pane: number, tab: number, ratio: number, share: number }
+
+-- Always expanded: one width for every tab's docked sidebar. A ratio this plugin did not set is the
 -- user's resize and becomes the width; every other docked sidebar, hidden tabs included, is set to
 -- it at once so switching tabs never moves the column.
 local function lockWidths(cx: WindowCx, tab: number, pane: number, owned: { [number]: boolean })
 	call(cx, "keeping sidebar width", function()
-		local ratio, outer = dockedRatio(cx, pane, tab)
-		if not ratio then
+		if not dockedRatio(cx, pane, tab) then
 			return
 		end
-		local saved = data.getDockedWidth()
-		local seen = widthSeen[key(pane)]
-		local resized = seen ~= nil and math.abs(ratio - seen) > WIDTH_EPSILON
-		local target: number = if saved and not resized then saved else ratio * outer
-		if target ~= saved then
-			data.setDockedWidth(target)
-		end
-		local applied: { [string]: number } = {}
+		local docked: { DockedSidebar } = {}
+		-- Check every sidebar, not only the visible one: a drag followed by a tab switch
+		-- within one refresh tick leaves the resize on a sidebar that is now hidden.
+		local resized: number? = nil
 		for sidebarPane in owned do
 			local paneKey = key(sidebarPane)
 			local sidebarTab = if closing[paneKey] or closed[paneKey] then nil else cx.session:tab_of(sidebarPane)
 			if sidebarTab then
-				local current, share = dockedRatio(cx, sidebarPane, sidebarTab)
-				if current then
-					applied[paneKey] = setRatio(cx, sidebarPane, sidebarTab, target / share) or current
+				local ratio, share = dockedRatio(cx, sidebarPane, sidebarTab)
+				if ratio then
+					table.insert(docked, { pane = sidebarPane, tab = sidebarTab, ratio = ratio, share = share })
+					local seen = widthSeen[paneKey]
+					if seen and math.abs(ratio - seen) > WIDTH_EPSILON and (resized == nil or sidebarPane == pane) then
+						resized = ratio * share
+					end
 				end
 			end
+		end
+		local saved = data.getDockedWidth()
+		local target: number
+		if resized then
+			target = resized
+		elseif saved then
+			target = saved
+		else
+			local ratio, share = dockedRatio(cx, pane, tab)
+			target = (ratio :: number) * share
+		end
+		if target ~= saved then
+			data.setDockedWidth(target)
+		end
+		local applied: { [string]: number } = {}
+		for _, entry in docked do
+			applied[key(entry.pane)] = setRatio(cx, entry.pane, entry.tab, target / entry.share) or entry.ratio
 		end
 		widthSeen = applied
 	end)
