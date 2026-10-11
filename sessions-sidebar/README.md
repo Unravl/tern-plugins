@@ -18,7 +18,7 @@ From the [tern-plugins](https://github.com/Unravl/tern-plugins) repository, wher
 tern plugin install github.com/Unravl/tern-plugins/sessions-sidebar
 ```
 
-`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.3.0 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
+`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.4.0 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
 
 To develop, use the folder in place instead: `tern plugin link ~/Documents/tern-plugins/sessions-sidebar`. After editing, reload with **`tern plugin reload`** from a terminal (see [Known limits](#known-limits) for why not the palette's *Reload plugins*).
 
@@ -38,8 +38,10 @@ The two overlay modes never resize the terminal or other panes: the drawer float
 
 - **Switch:** click a session row. Switching uses the exact numeric session ID, so duplicate names (also across hosts) are safe. The current session is highlighted; clicking it only returns focus to the terminal and never changes tabs. Clicking a session on another host switches host too.
 - **Collapse a host:** click the **-** / **+** button left of a host title. Collapsed hosts are remembered.
-- **Right-click a session:** **Rename session**, **Change icon**, **Reset icon**. Renaming does not switch to the session and keeps its icon.
-- **Right-click a host title:** **New session** (asks for a name, creates it on that host and switches to it; blank or cancelled does nothing; hidden while the host is not connected), **Rename host title**, **Reset host title**. The host title is a display alias in the sidebar only; the host's connection, address and Tern's own name are unchanged.
+- **New session on a host:** click the **+** icon at the far right of a connected host's header. It asks for a name, creates the session on that host and switches to it; blank or cancelled does nothing.
+- **Reorder sessions and hosts:** Tern 0.7.3 plugin panels cannot be dragged with the mouse, so moving is pick and place. Click the grip (dotted handle that appears on hover) at the left of a session or host header, or right-click it and choose **Move session** / **Move host**. The item lifts (accent bar) and a banner appears; click the session or host header whose place it should take. Moving down lands just after that item, moving up just before it. Click the lifted item again or **Cancel** to stop. Sessions move within their own host; hosts (including **This PC**) move among hosts. While an item is lifted the drawer stays open in the overlay modes.
+- **Right-click a session:** **Rename session**, **Move session**, **Change icon**, **Reset icon**. Renaming does not switch to the session and keeps its icon and position.
+- **Right-click a host title:** **New session** (same as the **+** icon; hidden while the host is not connected), **Move host**, **Rename host title**, **Reset host title**. The host title is a display alias in the sidebar only; the host's connection, address and Tern's own name are unchanged.
 - **Change an icon:** click a session's icon (or use its menu). Pick a native icon (Terminal, Folder, Code, Branch, Server, Database, Globe, Rocket, Moon, omp, Python, Rust), **Custom glyph or emoji** (up to 64 UTF-8 bytes), or **Reset icon**. Choosing an icon does not switch sessions.
 - **Paths:** the line under each name is the session's working directory. Paths in your home directory show as `~/…` (`/Users/<you>/…` locally, `/home/<you>/…` on Linux hosts). Long paths drop leading folders (`…/project/src`); hover a path for the full text.
 
@@ -61,13 +63,13 @@ Session renames, creation and closing appear within about a second; **Refresh se
 
 ## Remote hosts
 
-Only hosts already attached to this window are listed, after **This PC**, alphabetically. Nothing is installed on the remote, and the plugin runs no shell, SSH or network commands of its own; the remote Tern service must support native canvas panes. Disconnecting and forgetting a host removes its group.
+Only hosts already attached to this window are listed: **This PC** first and remote hosts alphabetically until you reorder them. Nothing is installed on the remote, and the plugin runs no shell, SSH or network commands of its own; the remote Tern service must support native canvas panes. Disconnecting and forgetting a host removes its group.
 
 ## What is saved
 
-Saved in Tern's plugin storage and kept across reloads and restarts: display mode, docked sidebar width, collapsed hosts, host title aliases and session icons. Hosts are identified by `This PC` or the remote's address (else its name), never by window-local IDs.
+Saved in Tern's plugin storage and kept across reloads and restarts: display mode, docked sidebar width, collapsed hosts, host order, session order, host title aliases and session icons. Hosts are identified by `This PC` or the remote's address (else its name), never by window-local IDs; a host that is detached keeps its saved place for when it returns.
 
-Session icons are saved by host plus session name, so they follow a session when you rename it through the sidebar. If two sessions on the same host share a name, their icons are kept only for the current window and are not saved; a session never inherits another session's icon (for example after the original of a duplicate name closes).
+Session icons and positions are saved by host plus session name, so they follow a session when you rename it through the sidebar. A session renamed elsewhere, or created later, appears after the ordered ones until you move it. If two sessions on the same host share a name, their icons and positions are kept only for the current window and are not saved; a session never inherits another session's icon (for example after the original of a duplicate name closes).
 
 ## Known limits
 
@@ -80,7 +82,7 @@ To remove the plugin, hide or close the sidebars, then run `tern plugin remove s
 
 ## Verification and development
 
-Verified in native **Tern 0.7.3** windows with an isolated config, using local sessions and a loopback remote host: hover, click-tab and always-expanded modes (terminal size unchanged in overlay modes, drawer full height and opaque, clipped drawer not clickable when closed), mode switching, session switching on both hosts, right-click menus, rename of an inactive session without switching, prompt focus across refreshes, cancel and blank-name handling, host title alias, host collapse/expand, New session on the remote host, native and custom-emoji icons, duplicate-name icon isolation across close and reload, `~/` paths, long-name and long-path truncation, Working / Active / Loaded / Unavailable lights and recovery after reconnect, the shared docked width (a real divider drag is kept exactly, hidden tabs, new tabs and other sessions follow it, pane geometry is pixel-identical immediately after every tab switch, and it survives mode switches, window resizing and plugin reloads), and the lifecycle scenario below (also right after a plugin reload). Real SSH hosts were **not** tested; loopback is not an SSH test.
+Verified in native **Tern 0.7.3** windows with an isolated config, using local sessions and loopback remote hosts: hover, click-tab and always-expanded modes (terminal size unchanged in overlay modes, drawer full height and opaque, clipped drawer not clickable when closed), mode switching, session switching on both hosts, right-click menus, rename of an inactive session without switching, prompt focus across refreshes, cancel and blank-name handling, host title alias, host collapse/expand, New session on the remote host from the menu and the header **+**, native and custom-emoji icons, duplicate-name icon isolation across close and reload, `~/` paths, long-name and long-path truncation, Working / Active / Loaded / Unavailable lights and recovery after reconnect, the shared docked width (a real divider drag is kept exactly, hidden tabs, new tabs and other sessions follow it, pane geometry is pixel-identical immediately after every tab switch, and it survives mode switches, window resizing and plugin reloads), pick-and-place reordering (sessions moved up and down within a host from the grip and the menu, hosts including This PC reordered, Cancel, clicking the lifted item, inert dimmed rows of other hosts, clicks on a destination's icon placing instead of opening the icon picker, position kept through a sidebar rename and a plugin reload, drawer held open while moving in hover mode), and the lifecycle scenario below (also right after a plugin reload). Real SSH hosts were **not** tested; loopback is not an SSH test.
 
 The native lifecycle regression scenario is `tests/sidebar-lifecycle.txt` (row click keeps terminal focus, parked replacement, Hide, manual close, Show, tab switching). It is verified in **Hover left edge** and **Always expanded** modes; Click tab mode is not supported by the script because its row click needs the drawer open. Run it in a **fresh isolated window**, never your normal sessions:
 

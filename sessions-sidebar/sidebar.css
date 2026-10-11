@@ -28,7 +28,8 @@
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"],
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"] {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] {
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
@@ -55,7 +56,8 @@
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"]:hover,
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"]:hover,
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"]:hover {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"]:hover,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"]:hover {
 	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
 	color: var(--t1);
 }
@@ -68,7 +70,8 @@
 	user-select: none;
 }
 
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"] {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] {
 	width: 20px;
 	height: 20px;
 	padding: 0;
@@ -186,4 +189,155 @@
 	padding: 3px 6px 3px 16px;
 	color: var(--t3);
 	flex-shrink: 0;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] .ico {
+	width: 14px;
+	height: 14px;
+}
+
+/* ---------- reorder grips: shown on hover, and always while moving ---------- */
+/* Opacity, never display, so showing a grip never changes measured widths. The negative
+   margins tuck the grip into the row padding: it costs the labels 12px (OVERLAY_PATH_CELLS). */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-grip"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"] {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 12px;
+	height: 24px;
+	margin: 0 -4px;
+	padding: 0;
+	border: 0;
+	border-radius: 3px;
+	background-color: transparent;
+	color: var(--t3);
+	cursor: grab;
+	flex-shrink: 0;
+	opacity: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"] {
+	height: 20px;
+	margin: 0 -2px 0 -4px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-grip"] .ico,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"] .ico {
+	width: 12px;
+	height: 12px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-session"]:hover [data-role="sessions-sidebar-grip"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-current"]:hover [data-role="sessions-sidebar-grip"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-heading"]:hover [data-role="sessions-sidebar-host-grip"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-grip"]:focus-visible,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-grip"]:focus-visible,
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-grip"],
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-grip"] {
+	opacity: 1;
+}
+
+[data-role="sessions-sidebar"][data-sidebar-moving=""] [data-role="sessions-sidebar-grip"]:hover,
+[data-role="sessions-sidebar"][data-sidebar-moving=""] [data-role="sessions-sidebar-host-grip"]:hover {
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	color: var(--t1);
+}
+
+/* ---------- move mode ---------- */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-move-banner"] {
+	box-sizing: border-box;
+	display: flex;
+	/* Text gets the full width; Cancel sits under it, so narrow docked sidebars never cut the instruction. */
+	flex-direction: column;
+	align-items: stretch;
+	gap: 4px;
+	min-width: 0;
+	padding: 4px 4px 4px 8px;
+	border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+	border-radius: 4px;
+	background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+	color: var(--t1);
+	font-size: 12px;
+	line-height: 16px;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-move-text"] {
+	min-width: 0;
+	overflow: hidden;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-move-cancel"] {
+	box-sizing: border-box;
+	padding: 2px 8px;
+	border: 1px solid var(--l2);
+	border-radius: 4px;
+	background-color: var(--card);
+	color: var(--t1);
+	font-size: 12px;
+	line-height: 16px;
+	cursor: pointer;
+	flex-shrink: 0;
+	align-self: flex-end;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-move-cancel"]:hover {
+	background-color: color-mix(in srgb, var(--accent) 16%, var(--card));
+}
+
+/* Child buttons carry no actions while moving: they must look inert and defer to their row. */
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-grip"],
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-grip"],
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-icon"],
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-toggle"],
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"] {
+	cursor: inherit;
+}
+
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-icon"]:hover,
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-toggle"]:hover,
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"]:hover {
+	background-color: transparent;
+	color: var(--t2);
+}
+
+/* The lifted item: tinted, and the native accent bar pulled inside the drawer's clip. */
+[data-role="sessions-sidebar"] [data-role][data-mark="pick"] {
+	border-radius: 4px;
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	cursor: pointer;
+}
+
+[data-role="sessions-sidebar"] [data-role][data-mark="pick"]::after {
+	left: 0;
+}
+
+/* Valid destinations ("Move here"): rows of the lifted session's host, or other headings. */
+[data-role="sessions-sidebar"][data-sidebar-moving="session"] [data-role="sessions-sidebar-session"]:not([data-mark]),
+[data-role="sessions-sidebar"][data-sidebar-moving="session"] [data-role="sessions-sidebar-current"]:not([data-mark]),
+[data-role="sessions-sidebar"][data-sidebar-moving="host"] [data-role="sessions-sidebar-heading"]:not([data-mark]) {
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+[data-role="sessions-sidebar"][data-sidebar-moving="session"] [data-role="sessions-sidebar-session"]:not([data-mark]):hover,
+[data-role="sessions-sidebar"][data-sidebar-moving="session"] [data-role="sessions-sidebar-current"]:not([data-mark]):hover,
+[data-role="sessions-sidebar"][data-sidebar-moving="host"] [data-role="sessions-sidebar-heading"]:not([data-mark]):hover {
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Dimmed (native "drop") items take no click while moving. */
+[data-role="sessions-sidebar"] [data-role][data-mark="drop"] {
+	cursor: default;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-session"][data-mark="drop"]:hover {
+	background-color: transparent;
 }

@@ -3,7 +3,7 @@ local sessions = require("./sessions")
 local data = require("./session-data")
 local drawer = require("./drawer")
 
-local ABOUT = "Sessions grouped by machine, with customizable icons, working directories, observed activity, and collapsible host groups. Use sidebar settings for docked, click-tab, or hover display; right-click sessions or host headings for native editing controls."
+local ABOUT = "Sessions grouped by machine, with customizable icons, working directories, observed activity, and collapsible host groups. Use sidebar settings for docked, click-tab, or hover display; right-click sessions or host headings for native editing controls; click a grip, then a new place, to reorder sessions or hosts."
 
 type Sidebar = {
 	pane: number?,
@@ -28,7 +28,9 @@ local unresolvedSince: { [string]: number } = {}
 -- Replica lag resolves within moments. Tern 0.7.3's palette "Reload plugins" drops
 -- existing local canvases' state for good; past this, stop waiting so the tab gets a sidebar.
 local UNRESOLVED_WAIT_MS = 5000
-local display: { open: boolean, holdOpen: boolean } = { open = false, holdOpen = false }
+local display: sessions.Display = { open = false, holdOpen = false, moving = nil }
+-- The item lifted for pick-and-place reordering; window-local like the rest of the drawer state.
+local moving: sessions.Moving? = nil
 -- Pane key -> docked split ratio last observed or applied. A visible change is the user's drag.
 local widthSeen: { [string]: number } = {}
 -- Ratios are 32-bit floats; this is ~0.1px on a 1280px window and far below one cell.
@@ -36,6 +38,30 @@ local WIDTH_EPSILON = 1e-4
 
 local function key(id: number): string
 	return string.format("%.0f", id)
+end
+
+-- A native prompt/picker or a lifted item keeps an overlay drawer open.
+local function syncDisplay()
+	display.moving = moving
+	display.holdOpen = nativeInputs > 0 or moving ~= nil
+end
+
+local function findHost(hosts: { ManagedHost }, id: number): ManagedHost?
+	for _, host in hosts do
+		if host.id == id then
+			return host
+		end
+	end
+	return nil
+end
+
+local function findSession(rows: { ManagedSession }, hostId: number, id: number?): ManagedSession?
+	for _, row in rows do
+		if row.id == id and row.host == hostId then
+			return row
+		end
+	end
+	return nil
 end
 
 local function preferredContent(tab: number): number?
@@ -499,8 +525,15 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 			host = machine
 		end
 	end
+	local lifted = moving
+	if lifted and (not findHost(hosts, lifted.host)
+		or (lifted.kind == "session" and not findSession(rows, lifted.host, lifted.session)))
+	then
+		-- The lifted item disappeared (closed, renamed away or detached elsewhere).
+		moving = nil
+	end
 	local snapshot = data.snapshot(cx, hosts, rows, preferredContent)
-	display.holdOpen = nativeInputs > 0
+	syncDisplay()
 	local model = sessions.build(hosts, rows, snapshot, display)
 	if selected then
 		if state.signature ~= model.signature then
@@ -843,6 +876,9 @@ local function globalAction(cx: WindowCx, target: sessions.Target): boolean
 	elseif target.kind == "toggle-panel" then
 		display.open = not display.open
 		refresh(cx)
+	elseif target.kind == "cancel-move" then
+		moving = nil
+		refresh(cx)
 	else
 		return false
 	end
@@ -904,7 +940,7 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	local rows = cx.sessions:list()
 	local snapshot = data.snapshot(cx, hosts, rows, preferredContent)
 	if not target then
-		display.holdOpen = nativeInputs > 0
+		syncDisplay()
 		target = sessions.build(hosts, rows, snapshot, display).targets[action]
 		if not target then
 			return false
@@ -917,7 +953,45 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	if not host then
 		return true
 	end
-	if target.kind == "switch" and row then
+	if target.kind == "move-session" and row then
+		moving = { kind = "session", host = host.id, session = row.id }
+		refresh(cx)
+	elseif target.kind == "move-host" then
+		moving = { kind = "host", host = host.id }
+		refresh(cx)
+	elseif target.kind == "place-session" and row then
+		-- `host`/`row` are the destination, resolved from this callback's fresh lists.
+		local lifted = moving
+		if not lifted or lifted.kind ~= "session" or lifted.host ~= host.id then
+			return true
+		end
+		local liftedRow = findSession(rows, host.id, lifted.session)
+		moving = nil
+		if not liftedRow then
+			cx:toast("error", "Session no longer exists", "The move was cancelled; no session was reordered.")
+		elseif liftedRow.id ~= row.id then
+			call(cx, "moving session", function()
+				data.moveSession(host, rows, liftedRow, row)
+			end)
+		end
+		refresh(cx)
+	elseif target.kind == "place-host" then
+		-- `host` is the destination, resolved from this callback's fresh list.
+		local lifted = moving
+		if not lifted or lifted.kind ~= "host" then
+			return true
+		end
+		local liftedHost = findHost(hosts, lifted.host)
+		moving = nil
+		if not liftedHost then
+			cx:toast("error", "Machine no longer attached", "The move was cancelled; no host was reordered.")
+		elseif liftedHost.id ~= host.id then
+			call(cx, "moving host", function()
+				data.moveHost(hosts, liftedHost, host)
+			end)
+		end
+		refresh(cx)
+	elseif target.kind == "switch" and row then
 		-- Switching to the shown session jumps to the tab Tern last remembered for it, not the
 		-- visible one; clicking the current row only hands focus back to the content pane.
 		if not row.current then

@@ -27,7 +27,7 @@ export type ManagedSession = {
 	tabs: number,
 }
 
-type TargetKind = "switch" | "rename-session" | "change-icon" | "reset-icon" | "rename-host" | "reset-host" | "new-session" | "toggle-host" | "settings" | "toggle-panel"
+type TargetKind = "switch" | "rename-session" | "change-icon" | "reset-icon" | "rename-host" | "reset-host" | "new-session" | "toggle-host" | "settings" | "toggle-panel" | "move-host" | "move-session" | "place-host" | "place-session" | "cancel-move"
 
 export type Target = {
 	kind: TargetKind,
@@ -35,9 +35,17 @@ export type Target = {
 	session: number?,
 }
 
+-- The one item lifted for pick-and-place reordering; `session` is set only for kind "session".
+export type Moving = {
+	kind: "host" | "session",
+	host: number,
+	session: number?,
+}
+
 export type Display = {
 	open: boolean,
 	holdOpen: boolean,
+	moving: Moving?,
 }
 
 export type BuiltView = {
@@ -50,7 +58,6 @@ type Group = {
 	host: ManagedHost,
 	key: string,
 	label: string,
-	sortLabel: string,
 	collapsed: boolean,
 	rows: { ManagedSession },
 }
@@ -101,10 +108,11 @@ local function displayPath(path: string): string
 	return path
 end
 
--- Overlay drawers have a fixed 222px path column at 11px monospace (~33 cells), and Tern's
--- own truncation measures the floating pane's cells, not that column. Drop whole leading
--- directories so the meaningful end stays visible; docked mode keeps Tern's native truncation.
-local OVERLAY_PATH_CELLS = 32
+-- Overlay drawers have a fixed 210px path column at 11px monospace (~31 cells; the reorder
+-- grip takes 12px), and Tern's own truncation measures the floating pane's cells, not that
+-- column. Drop whole leading directories so the meaningful end stays visible; docked mode
+-- keeps Tern's native truncation.
+local OVERLAY_PATH_CELLS = 30
 
 local function fitPath(path: string, cells: number): string
 	local length = utf8.len(path) or #path
@@ -153,7 +161,6 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			host = host,
 			key = key,
 			label = label,
-			sortLabel = string.lower(label),
 			collapsed = snapshot.hostCollapsed[key] == true,
 			rows = {},
 		}
@@ -169,18 +176,32 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 		end
 	end
 
+	-- Ranks are the final display order: saved order first, then today's default order.
 	table.sort(groups, function(a: Group, b: Group): boolean
-		if a.host.kind ~= b.host.kind then
-			return a.host.kind == "local"
-		end
-		if a.sortLabel ~= b.sortLabel then
-			return a.sortLabel < b.sortLabel
-		end
-		if a.label ~= b.label then
-			return a.label < b.label
-		end
-		return a.host.id < b.host.id
+		return snapshot.hostRank[a.key] < snapshot.hostRank[b.key]
 	end)
+	for _, group in groups do
+		table.sort(group.rows, function(a: ManagedSession, b: ManagedSession): boolean
+			return snapshot.sessionRank[idKey(a.id)] < snapshot.sessionRank[idKey(b.id)]
+		end)
+	end
+
+	local moving = display.moving
+	local movingName = ""
+	local movingSession: number? = nil
+	if moving then
+		movingSession = moving.session
+		if moving.kind == "session" then
+			for _, session in rows do
+				if session.id == moving.session and session.host == moving.host then
+					movingName = session.name
+					break
+				end
+			end
+		else
+			movingName = snapshot.hostTitles[idKey(moving.host)] or ""
+		end
+	end
 
 	local targets: { [string]: Target } = {}
 	local rootId = "main.sessions-sidebar"
@@ -204,6 +225,32 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			}),
 		}),
 	}
+	if moving then
+		table.insert(children, ui.el("div", {
+			key = "move",
+			role = "sessions-sidebar-move-banner",
+			class = "sessions-sidebar-move-banner",
+		}, {
+			with(ui.text("Moving " .. movingName .. ": click its new place"), {
+				key = "text",
+				role = "sessions-sidebar-move-text",
+				-- Narrow docked sidebars cut one line mid-instruction; wrap instead.
+				wrap = "word",
+				lines = 3,
+				grow = 1,
+				shrink = 1,
+			}),
+			ui.el("button", {
+				key = "cancel",
+				role = "sessions-sidebar-move-cancel",
+				text = "Cancel",
+				title = "Cancel move",
+				aria = "Cancel move",
+				actions = { click = addTarget(targets, "cancel-move", drawerId .. ".move.cancel", "cancel-move", nil, nil) },
+				shrink = 0,
+			}),
+		}))
+	end
 	local tabActions: { [string]: any } = {}
 	if snapshot.sidebarMode ~= "always" then
 		tabActions.menu = { addTarget(targets, "sidebar-settings", rootId .. ".tab", "settings", nil, nil) }
@@ -218,6 +265,10 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 	addSignature(signature, snapshot.sidebarMode)
 	addSignature(signature, tostring(display.open))
 	addSignature(signature, tostring(display.holdOpen))
+	addSignature(signature, if moving then moving.kind else "")
+	addSignature(signature, if moving then idKey(moving.host) else "")
+	addSignature(signature, if movingSession then idKey(movingSession) else "")
+	addSignature(signature, movingName)
 	addSignature(signature, tostring(#groups))
 
 	for _, group in groups do
@@ -229,6 +280,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 		if connected then
 			table.insert(hostMenu, addTarget(targets, "new-session", headingId, "new-session", host.id, nil))
 		end
+		table.insert(hostMenu, addTarget(targets, "move-host", headingId, "move-host", host.id, nil))
 		table.insert(hostMenu, addTarget(targets, "rename-host-title", headingId, "rename-host", host.id, nil))
 		table.insert(hostMenu, addTarget(targets, "reset-host-title", headingId, "reset-host", host.id, nil))
 		local heading = group.label
@@ -236,34 +288,80 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			heading ..= " · " .. host.state
 		end
 		local toggleTitle = (if group.collapsed then "Expand sessions on " else "Collapse sessions on ") .. group.label
-		local section: { Node } = {
-			with(ui.row({
-				ui.el("button", {
-					key = "toggle",
-					role = "sessions-sidebar-host-toggle",
-					text = if group.collapsed then "+" else "-",
-					title = toggleTitle,
-					aria = toggleTitle,
-					attrs = { ["aria-expanded"] = tostring(not group.collapsed) },
-					actions = { click = addTarget(targets, "toggle-host", headingId .. ".toggle", "toggle-host", host.id, nil) },
-					shrink = 0,
-				}),
-				with(ui.text(heading), {
-					key = "title",
-					role = "sessions-sidebar-host-title",
-					title = heading,
-					wrap = "none",
-					truncate = "end",
-					grow = 1,
-					shrink = 1,
-				}),
-			}), {
-				key = "heading",
-				role = "sessions-sidebar-heading",
-				title = heading,
-				align = "center",
-				actions = { menu = hostMenu },
+		local hostMoveTitle = "Move " .. group.label
+		local headingActions: { [string]: any } = { menu = hostMenu }
+		local headingProps: { [string]: any } = {
+			key = "heading",
+			role = "sessions-sidebar-heading",
+			title = heading,
+			align = "center",
+			actions = headingActions,
+		}
+		-- While moving, child buttons carry no actions or titles so every click reaches the heading.
+		if moving then
+			if moving.kind ~= "host" then
+				headingProps.mark = "drop"
+			elseif moving.host == host.id then
+				headingProps.mark = "pick"
+				headingProps.title = "Cancel move"
+				headingActions.click = addTarget(targets, "cancel-move", headingId, "cancel-move", nil, nil)
+			else
+				headingProps.title = "Move here"
+				headingActions.click = addTarget(targets, "place-host", headingId, "place-host", host.id, nil)
+			end
+		end
+		local headingChildren: { Node } = {
+			ui.el("button", {
+				key = "grip",
+				role = "sessions-sidebar-host-grip",
+				title = if moving then nil else hostMoveTitle,
+				aria = hostMoveTitle,
+				actions = if moving
+					then nil
+					else { click = addTarget(targets, "move-host", headingId .. ".grip", "move-host", host.id, nil) },
+				shrink = 0,
+			}, {
+				ui.node("icon", { key = "icon", name = "grip" }),
 			}),
+			ui.el("button", {
+				key = "toggle",
+				role = "sessions-sidebar-host-toggle",
+				text = if group.collapsed then "+" else "-",
+				title = if moving then nil else toggleTitle,
+				aria = toggleTitle,
+				attrs = { ["aria-expanded"] = tostring(not group.collapsed) },
+				actions = if moving
+					then nil
+					else { click = addTarget(targets, "toggle-host", headingId .. ".toggle", "toggle-host", host.id, nil) },
+				shrink = 0,
+			}),
+			with(ui.text(heading), {
+				key = "title",
+				role = "sessions-sidebar-host-title",
+				title = heading,
+				wrap = "none",
+				truncate = "end",
+				grow = 1,
+				shrink = 1,
+			}),
+		}
+		if connected then
+			local newTitle = "New session on " .. group.label
+			table.insert(headingChildren, ui.el("button", {
+				key = "new",
+				role = "sessions-sidebar-host-new",
+				title = if moving then nil else newTitle,
+				aria = newTitle,
+				actions = if moving
+					then nil
+					else { click = addTarget(targets, "new-session", headingId .. ".new", "new-session", host.id, nil) },
+				shrink = 0,
+			}, {
+				ui.node("icon", { key = "icon", name = "plus" }),
+			}))
+		end
+		local section: { Node } = {
+			with(ui.row(headingChildren), headingProps),
 		}
 
 		addSignature(signature, group.key)
@@ -272,7 +370,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 		addSignature(signature, tostring(group.collapsed))
 		addSignature(signature, tostring(#group.rows))
 
-		-- Rows retain the session API's order within their own host.
+		-- Rows follow their host's saved order (snapshot.sessionRank).
 		for _, session in group.rows do
 			local sessionKey = idKey(session.id)
 			local metadata = snapshot.sessions[sessionKey]
@@ -280,26 +378,60 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			local iconId = rowId .. ".icon"
 			local sessionMenu = {
 				addTarget(targets, "rename-session", rowId, "rename-session", host.id, session.id),
+				addTarget(targets, "move-session", rowId, "move-session", host.id, session.id),
 				addTarget(targets, "change-icon", rowId, "change-icon", host.id, session.id),
 				addTarget(targets, "reset-icon", rowId, "reset-icon", host.id, session.id),
 			}
-			addTarget(targets, "rename-session", iconId, "rename-session", host.id, session.id)
-			local changeIcon = addTarget(targets, "change-icon", iconId, "change-icon", host.id, session.id)
-			addTarget(targets, "reset-icon", iconId, "reset-icon", host.id, session.id)
 			local label = session.name
 			if session.locked then
 				label ..= " · locked"
 			end
+			local sessionMoveTitle = "Move " .. session.name
 			local actions: { [string]: any } = { menu = sessionMenu }
-			if connected then
-				actions.click = addTarget(targets, "switch-session", rowId, "switch", host.id, session.id)
+			local rowTitle = label
+			local rowMark: string? = nil
+			local gripActions: { [string]: any }? = nil
+			local iconActions: { [string]: any }? = nil
+			if not moving then
+				if connected then
+					actions.click = addTarget(targets, "switch-session", rowId, "switch", host.id, session.id)
+				end
+				gripActions = { click = addTarget(targets, "move-session", rowId .. ".grip", "move-session", host.id, session.id) }
+				addTarget(targets, "rename-session", iconId, "rename-session", host.id, session.id)
+				addTarget(targets, "move-session", iconId, "move-session", host.id, session.id)
+				addTarget(targets, "reset-icon", iconId, "reset-icon", host.id, session.id)
+				iconActions = {
+					click = addTarget(targets, "change-icon", iconId, "change-icon", host.id, session.id),
+					menu = sessionMenu,
+				}
+			elseif moving.kind ~= "session" or moving.host ~= host.id then
+				rowMark = "drop"
+			elseif moving.session == session.id then
+				rowMark = "pick"
+				rowTitle = "Cancel move"
+				actions.click = addTarget(targets, "cancel-move", rowId, "cancel-move", nil, nil)
+			else
+				rowTitle = "Move here"
+				actions.click = addTarget(targets, "place-session", rowId, "place-session", host.id, session.id)
 			end
+			-- While moving, the grip and icon carry no actions (their right-click reaches the
+			-- row's identical menu) so every click lands on the row.
+			local grip = ui.el("button", {
+				key = "grip",
+				role = "sessions-sidebar-grip",
+				title = if moving then nil else sessionMoveTitle,
+				aria = sessionMoveTitle,
+				actions = gripActions,
+				shrink = 0,
+			}, {
+				ui.node("icon", { key = "icon", name = "grip" }),
+			})
 			local iconProps: { [string]: any } = {
 				key = "icon",
 				role = "sessions-sidebar-icon",
-				title = "Change icon for " .. session.name,
+				title = if moving then nil else "Change icon for " .. session.name,
 				aria = "Change icon for " .. session.name,
-				actions = { click = changeIcon, menu = sessionMenu },
+				actions = iconActions,
 				shrink = 0,
 			}
 			local icon: Node
@@ -320,7 +452,8 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			local props: { [string]: any } = {
 				key = "session-" .. sessionKey,
 				role = if session.current then "sessions-sidebar-current" else "sessions-sidebar-session",
-				title = label,
+				title = rowTitle,
+				mark = rowMark,
 				actions = actions,
 				align = "center",
 				shrink = 0,
@@ -329,6 +462,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 				props.tone = "muted"
 			end
 			table.insert(section, with(ui.row({
+				grip,
 				icon,
 				with(ui.col({
 					with(ui.text(label), {
@@ -402,6 +536,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 				["data-sidebar-mode"] = snapshot.sidebarMode,
 				["data-sidebar-open"] = tostring(display.open),
 				["data-sidebar-hold"] = tostring(display.holdOpen),
+				["data-sidebar-moving"] = if moving then moving.kind else "",
 			},
 		}, {
 			ui.el("button", {

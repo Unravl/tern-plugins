@@ -14,6 +14,10 @@ export type Snapshot = {
 	hostCollapsed: { [string]: boolean },
 	sidebarMode: SidebarMode,
 	sessions: { [string]: SessionMetadata },
+	-- idKey(host.id) -> 1..n final display order of every attached host.
+	hostRank: { [string]: number },
+	-- idKey(session.id) -> 1..n final display order within its host.
+	sessionRank: { [string]: number },
 }
 
 type Values = { [string]: any }
@@ -34,11 +38,18 @@ local HOST_COLLAPSED = "sidebar.host-collapsed.v1"
 local SIDEBAR_MODE = "sidebar.display-mode.v1"
 -- Share of the tab width (0..1) the docked sidebar takes in Always expanded mode.
 local DOCKED_WIDTH = "sidebar.docked-width.v1"
+-- Array of stable host keys, first displayed first.
+local HOST_ORDER = "sidebar.host-order.v1"
+-- { [stableHostKey]: array of unique session names }, first displayed first.
+local SESSION_ORDER = "sidebar.session-order.v1"
 local DEFAULT_ICON: Icon = { kind = "named", value = "terminal" }
 
 -- Received session ids belong only to this VM. In particular, ambiguous names
 -- must never cause one session to acquire another session's saved icon.
 local rememberedIcons: { [string]: RememberedIcon } = {}
+-- Stable host key -> this VM's session order keys ("n:" .. unique name or
+-- "i:" .. idKey(id)). Only "n:" keys are durable; exact ids place duplicates.
+local sessionOrders: { [string]: { string } } = {}
 
 local function idKey(id: number): string
 	return string.format("%.0f", id)
@@ -164,6 +175,173 @@ local function updateSavedIcon(saved: Values, host: string, name: string, icon: 
 	return true
 end
 
+local function stringList(value: any): { string }
+	local list: { string } = {}
+	if type(value) ~= "table" then
+		return list
+	end
+	local seen: { [string]: boolean } = {}
+	for _, item in ipairs(value) do
+		if type(item) == "string" and not seen[item] then
+			seen[item] = true
+			table.insert(list, item)
+		end
+	end
+	return list
+end
+
+local function sameList(a: { string }, b: { string }): boolean
+	if #a ~= #b then
+		return false
+	end
+	for index, value in a do
+		if b[index] ~= value then
+			return false
+		end
+	end
+	return true
+end
+
+-- Places `moving` in `target`'s slot: right after it when `moving` was above,
+-- otherwise right before it.
+local function moveKey(keys: { string }, moving: string, target: string): { string }
+	local from = table.find(keys, moving)
+	local to = table.find(keys, target)
+	if not from or not to or from == to then
+		error("The item to move or its new place is no longer listed.")
+	end
+	local order = table.clone(keys)
+	table.remove(order, from)
+	-- Index `to` is right after the shifted target when moving down, and
+	-- right before the unshifted target when moving up.
+	table.insert(order, to, moving)
+	return order
+end
+
+local function displayTitle(titles: Values, host: ManagedHost): string
+	local title = titles[hostKey(host)]
+	return if type(title) == "string" and string.find(title, "%S") then title else hostTitle(host)
+end
+
+-- Saved hosts first in saved order, then the rest local first and by title.
+local function orderHosts(hosts: { ManagedHost }, titles: Values, saved: { string }): { ManagedHost }
+	local position: { [string]: number } = {}
+	for index, key in saved do
+		position[key] = index
+	end
+	local ranks: { [string]: number } = {}
+	local labels: { [string]: string } = {}
+	local sortLabels: { [string]: string } = {}
+	for _, host in hosts do
+		local key = idKey(host.id)
+		local label = displayTitle(titles, host)
+		ranks[key] = position[hostKey(host)]
+		labels[key] = label
+		sortLabels[key] = string.lower(label)
+	end
+	-- SDK lists carry a protected metatable that table.clone rejects.
+	local ordered: { ManagedHost } = {}
+	for _, host in hosts do
+		table.insert(ordered, host)
+	end
+	table.sort(ordered, function(a: ManagedHost, b: ManagedHost): boolean
+		local aKey = idKey(a.id)
+		local bKey = idKey(b.id)
+		local aRank = ranks[aKey]
+		local bRank = ranks[bKey]
+		if aRank ~= bRank then
+			if aRank and bRank then
+				return aRank < bRank
+			end
+			return aRank ~= nil
+		end
+		if a.kind ~= b.kind then
+			return a.kind == "local"
+		end
+		if sortLabels[aKey] ~= sortLabels[bKey] then
+			return sortLabels[aKey] < sortLabels[bKey]
+		end
+		if labels[aKey] ~= labels[bKey] then
+			return labels[aKey] < labels[bKey]
+		end
+		return a.id < b.id
+	end)
+	return ordered
+end
+
+local function sessionKey(row: ManagedSession, counts: NameCounts): string
+	return if counts[row.name] == 1 then "n:" .. row.name else "i:" .. idKey(row.id)
+end
+
+local function namesOf(keys: { string }): { string }
+	local names: { string } = {}
+	for _, key in keys do
+		if string.sub(key, 1, 2) == "n:" then
+			table.insert(names, string.sub(key, 3))
+		end
+	end
+	return names
+end
+
+local function sessionOrderKeys(stable: string, saved: Values): { string }
+	local names = stringList(saved[stable])
+	local remembered = sessionOrders[stable]
+	-- Another window may have saved a newer order; its names then win.
+	if remembered and sameList(namesOf(remembered), names) then
+		return remembered
+	end
+	local keys: { string } = {}
+	for _, name in names do
+		table.insert(keys, "n:" .. name)
+	end
+	return keys
+end
+
+-- Listed sessions first in list order, then the rest in native order.
+local function orderSessions(host: ManagedHost, rows: { ManagedSession }, saved: Values): { ManagedSession }
+	local counts = namesOnHost(rows, host.id)
+	local byKey: { [string]: ManagedSession } = {}
+	local onHost: { ManagedSession } = {}
+	for _, row in rows do
+		if row.host == host.id then
+			table.insert(onHost, row)
+			byKey[sessionKey(row, counts)] = row
+		end
+	end
+	local ordered: { ManagedSession } = {}
+	local placed: { [string]: boolean } = {}
+	for _, key in sessionOrderKeys(hostKey(host), saved) do
+		local row = byKey[key]
+		if row and not placed[idKey(row.id)] then
+			placed[idKey(row.id)] = true
+			table.insert(ordered, row)
+		end
+	end
+	for _, row in onHost do
+		if not placed[idKey(row.id)] then
+			table.insert(ordered, row)
+		end
+	end
+	return ordered
+end
+
+-- Replaces `old` in place with `replacement`, dropping stale `replacement`s.
+local function renameKey(keys: { string }, old: string, replacement: string): ({ string }, boolean)
+	local index = table.find(keys, old)
+	if not index then
+		return keys, false
+	end
+	local renamed: { string } = {}
+	for position, key in keys do
+		if position == index then
+			table.insert(renamed, replacement)
+		elseif key ~= replacement then
+			table.insert(renamed, key)
+		end
+	end
+	return renamed, true
+end
+
 local function getSidebarMode(): SidebarMode
 	local mode = tern.kv.get(SIDEBAR_MODE)
 	return if mode == "always" or mode == "click" or mode == "hover" then mode else "hover"
@@ -208,7 +386,14 @@ local function snapshot(
 	local titles = readValues(HOST_TITLES)
 	local icons = readValues(SESSION_ICONS)
 	local collapsed = readValues(HOST_COLLAPSED)
-	local result: Snapshot = { hostTitles = {}, hostCollapsed = {}, sidebarMode = getSidebarMode(), sessions = {} }
+	local result: Snapshot = {
+		hostTitles = {},
+		hostCollapsed = {},
+		sidebarMode = getSidebarMode(),
+		sessions = {},
+		hostRank = {},
+		sessionRank = {},
+	}
 	local byHost: { [string]: ManagedHost } = {}
 	local stableHosts: { [string]: string } = {}
 	local names: { [string]: NameCounts } = {}
@@ -218,9 +403,28 @@ local function snapshot(
 		byHost[key] = host
 		stableHosts[key] = stable
 		names[key] = {}
-		local title = titles[stable]
-		result.hostTitles[key] = if type(title) == "string" and string.find(title, "%S") then title else hostTitle(host)
+		result.hostTitles[key] = displayTitle(titles, host)
 		result.hostCollapsed[key] = collapsed[stable] == true
+	end
+	for index, host in orderHosts(hosts, titles, stringList(tern.kv.get(HOST_ORDER))) do
+		result.hostRank[idKey(host.id)] = index
+	end
+	local sessionOrder = readValues(SESSION_ORDER)
+	for _, host in hosts do
+		for index, row in orderSessions(host, rows, sessionOrder) do
+			result.sessionRank[idKey(row.id)] = index
+		end
+	end
+	-- Rows of unattached hosts still get a native-order rank within that host.
+	local unattached: { [string]: number } = {}
+	for _, row in rows do
+		local key = idKey(row.id)
+		if not result.sessionRank[key] then
+			local hostId = idKey(row.host)
+			local rank = (unattached[hostId] or 0) + 1
+			unattached[hostId] = rank
+			result.sessionRank[key] = rank
+		end
 	end
 
 	local observed: { [string]: Observed } = {}
@@ -472,6 +676,82 @@ local function renameSession(cx: WindowCx, host: ManagedHost, row: ManagedSessio
 	if changed then
 		tern.kv.set(SESSION_ICONS, fresh)
 	end
+
+	if counts[oldName] == 1 and remaining[renamed.name] == 1 then
+		-- Both names are unique: the session keeps its place under the new name.
+		local remembered = sessionOrders[stable]
+		if remembered then
+			sessionOrders[stable] = (renameKey(remembered, "n:" .. oldName, "n:" .. renamed.name))
+		end
+		local orders = readValues(SESSION_ORDER)
+		local order, moved = renameKey(stringList(orders[stable]), oldName, renamed.name)
+		if moved then
+			orders[stable] = order
+			tern.kv.set(SESSION_ORDER, orders)
+		end
+	end
+end
+
+local function findHost(hosts: { ManagedHost }, host: ManagedHost): ManagedHost
+	for _, candidate in hosts do
+		if candidate.id == host.id then
+			return candidate
+		end
+	end
+	error("The host is no longer attached to this window.")
+end
+
+local function moveHost(hosts: { ManagedHost }, moving: ManagedHost, target: ManagedHost): ()
+	if moving.id == target.id then
+		error("Choose a different host as the new place.")
+	end
+	local movingKey = hostKey(findHost(hosts, moving))
+	local targetKey = hostKey(findHost(hosts, target))
+	if movingKey == targetKey then
+		error("These hosts share one saved identity, so their order cannot be saved.")
+	end
+	local saved = stringList(tern.kv.get(HOST_ORDER))
+	-- Saved but detached hosts keep their slots; attached unsaved hosts join
+	-- in their current display order.
+	local full = table.clone(saved)
+	local listed: { [string]: boolean } = {}
+	for _, key in saved do
+		listed[key] = true
+	end
+	for _, host in orderHosts(hosts, readValues(HOST_TITLES), saved) do
+		local key = hostKey(host)
+		if not listed[key] then
+			listed[key] = true
+			table.insert(full, key)
+		end
+	end
+	local order = moveKey(full, movingKey, targetKey)
+	if not sameList(order, saved) then
+		tern.kv.set(HOST_ORDER, order)
+	end
+end
+
+local function moveSession(host: ManagedHost, rows: { ManagedSession }, moving: ManagedSession, target: ManagedSession): ()
+	if moving.id == target.id then
+		error("Choose a different session as the new place.")
+	end
+	local lifted = findRow(rows, host, moving)
+	local destination = findRow(rows, host, target)
+	local stable = hostKey(host)
+	local counts = namesOnHost(rows, host.id)
+	local saved = readValues(SESSION_ORDER)
+	local keys: { string } = {}
+	for _, row in orderSessions(host, rows, saved) do
+		table.insert(keys, sessionKey(row, counts))
+	end
+	local order = moveKey(keys, sessionKey(lifted, counts), sessionKey(destination, counts))
+	sessionOrders[stable] = order
+	-- Only unique names are durable; present sessions only.
+	local names = namesOf(order)
+	if not sameList(names, stringList(saved[stable])) then
+		saved[stable] = if #names > 0 then names else nil
+		tern.kv.set(SESSION_ORDER, saved)
+	end
 end
 
 return {
@@ -484,4 +764,6 @@ return {
 	setHostCollapsed = setHostCollapsed,
 	setSessionIcon = setSessionIcon,
 	renameSession = renameSession,
+	moveHost = moveHost,
+	moveSession = moveSession,
 }
