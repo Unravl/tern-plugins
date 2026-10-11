@@ -1,0 +1,189 @@
+[data-role="sessions-sidebar"] {
+	box-sizing: border-box;
+	min-width: 0;
+	color: var(--t1);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-drawer"] {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+	padding: 4px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-toolbar"] {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	min-height: 32px;
+	padding: 0 8px;
+	font-size: 13px;
+	line-height: 16px;
+	font-weight: 600;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"] {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 4px;
+	background-color: transparent;
+	color: var(--t2);
+	cursor: pointer;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"] {
+	padding: 6px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"] .ico,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"] .ico {
+	width: 16px;
+	height: 16px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"]:hover,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"]:hover,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"]:hover {
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	color: var(--t1);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-heading"] {
+	min-width: 0;
+	padding: 5px 8px;
+	gap: 6px;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"] {
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	font-size: 14px;
+	line-height: 20px;
+}
+
+/* Keep content height natural: the canvas's native scrolling region owns scroll. */
+[data-role="sessions-sidebar"] .sf-col[data-role="sessions-sidebar-host"] {
+	gap: 0;
+	min-width: 0;
+	flex-shrink: 0;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-title"] {
+	min-width: 0;
+	color: var(--t2);
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 600;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-session"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-current"] {
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: 48px;
+	padding: 8px;
+	gap: 8px;
+	border-left: 2px solid transparent;
+	border-radius: 4px;
+	color: var(--t1);
+	cursor: pointer;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-session"]:hover {
+	background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-current"] {
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	border-left-color: var(--accent);
+	font-weight: 600;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-session"][data-tone="muted"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-current"][data-tone="muted"] {
+	background-color: transparent;
+	color: var(--t3);
+	cursor: default;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-labels"] {
+	min-width: 0;
+	gap: 2px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-name"] {
+	min-width: 0;
+	font-size: 13px;
+	line-height: 16px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-path"] {
+	min-width: 0;
+	font-size: 11px;
+	line-height: 14px;
+	font-weight: 400;
+	color: var(--t3);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-icon"] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 4px;
+	font-size: 18px;
+	line-height: 24px;
+	font-weight: 400;
+	color: var(--t2);
+	cursor: pointer;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-icon"] .ico {
+	width: 16px;
+	height: 16px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-icon"]:hover {
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	color: var(--t1);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-status"] {
+	box-sizing: border-box;
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border: 1px solid var(--tc);
+	border-radius: 50%;
+	background-color: var(--tc);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-status"][data-tone="muted"] {
+	background-color: transparent;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-empty"] {
+	padding: 3px 6px 3px 16px;
+	color: var(--t3);
+	flex-shrink: 0;
+}

@@ -1,0 +1,85 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab.
+# tern ctl --control <endpoint> --file tests/sidebar-lifecycle.txt
+# Creates one additional tab; never closes content panes or sessions.
+ready
+wait 1500
+carly lua "sidebarTest = {}; function sidebarPanels(tab) local rows = {}; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then table.insert(rows, canvas.pane) end end; return rows end; function sidebarCheck(tab, content, count) assert(cx.session:tab_of(content) == tab, 'content left its tab'); assert(cx.session:focused() == content, 'sidebar stole content focus'); local rows = sidebarPanels(tab); assert(#rows == count, 'unexpected sidebar count: ' .. tostring(#rows)); for _, info in cx.session:tabs() do assert(#sidebarPanels(info.id) <= 1, 'duplicate sidebars in a tab') end; return rows[1] end; sidebarTest.content = cx.session:focused(); assert(sidebarTest.content, 'active content pane required'); local pane = cx.session:pane(sidebarTest.content); assert(pane and pane.kind == 'terminal', 'start with a focused shell pane'); sidebarTest.tab = cx.session:tab_of(sidebarTest.content); assert(sidebarTest.tab, 'active tab required'); sidebarTest.original = sidebarCheck(sidebarTest.tab, sidebarTest.content, 1); for _, session in cx.session:sessions() do if session.current then sidebarTest.session = session.id end end; assert(sidebarTest.session, 'current session required'); return 'PASS initial owned sidebar and content focus'"
+carly ok
+carly close
+
+# Regression: a native click on the current-session row must restore content focus.
+# Run in Hover left edge (default) or Always expanded mode. In hover mode this reveals the
+# drawer from the left edge before clicking inside it; over a docked sidebar the move is inert.
+move 8 300
+wait 500
+click "[data-role='sessions-sidebar-current']"
+wait 1500
+carly lua "assert(sidebarCheck(sidebarTest.tab, sidebarTest.content, 1) == sidebarTest.original, 'click replaced sidebar'); local current; for _, session in cx.session:sessions() do if session.current then current = session.id end end; assert(current == sidebarTest.session, 'current-session click switched sessions'); return 'PASS native session-row click preserves content focus'"
+carly ok
+carly close
+
+# Regression: closing an old parked sidebar must not hide its live replacement.
+carly lua "assert(cx.canvas:get(sidebarTest.original).owner == 'sessions-sidebar', 'park only an owned sidebar'); local ok, err = cx.layout:park(sidebarTest.original); assert(ok, err or 'sidebar park failed'); return 'PASS parked owned sidebar'"
+carly ok
+carly close
+wait 1500
+carly lua "local pane = cx.session:pane(sidebarTest.original); assert(pane and pane.parked, 'old sidebar was not parked'); assert(cx.session:tab_of(sidebarTest.original) == nil, 'parked sidebar still has a tab'); sidebarCheck(sidebarTest.tab, sidebarTest.content, 0); return 'PASS parked sidebar stays outside active tab'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.show
+wait 1500
+carly lua "sidebarTest.replacement = sidebarCheck(sidebarTest.tab, sidebarTest.content, 1); assert(sidebarTest.replacement ~= sidebarTest.original, 'Show reused parked sidebar'); local old = cx.session:pane(sidebarTest.original); assert(old and old.parked, 'old sidebar must remain parked'); assert(cx.canvas:get(sidebarTest.original).owner == 'sessions-sidebar', 'close only an owned sidebar'); cx.layout:close(sidebarTest.original); return 'PASS replacement shown; old parked sidebar closed'"
+carly ok
+carly close
+wait 1500
+carly lua "assert(cx.session:pane(sidebarTest.original) == nil, 'old sidebar still exists'); assert(sidebarCheck(sidebarTest.tab, sidebarTest.content, 1) == sidebarTest.replacement, 'closing old parked sidebar destroyed replacement'); return 'PASS replacement survives old parked close with content focus'"
+carly ok
+carly close
+
+plugins run plugin.sessions-sidebar.hide
+wait 1500
+carly lua "sidebarCheck(sidebarTest.tab, sidebarTest.content, 0); return 'PASS Hide removes sidebar'"
+carly ok
+carly close
+wait 1500
+carly lua "sidebarCheck(sidebarTest.tab, sidebarTest.content, 0); return 'PASS Hide stays hidden across reconciliation'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.show
+wait 1500
+carly lua "sidebarTest.manual = sidebarCheck(sidebarTest.tab, sidebarTest.content, 1); assert(cx.canvas:get(sidebarTest.manual).owner == 'sessions-sidebar', 'close only an owned sidebar'); cx.layout:close(sidebarTest.manual); return 'PASS Show restores one sidebar; manually closed owned pane'"
+carly ok
+carly close
+wait 1500
+carly lua "assert(cx.session:pane(sidebarTest.manual) == nil, 'manual close did not remove sidebar'); sidebarCheck(sidebarTest.tab, sidebarTest.content, 0); return 'PASS manual close removes sidebar'"
+carly ok
+carly close
+wait 1500
+carly lua "sidebarCheck(sidebarTest.tab, sidebarTest.content, 0); return 'PASS manual close stays closed until Show'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.show
+wait 1500
+carly lua "sidebarTest.restored = sidebarCheck(sidebarTest.tab, sidebarTest.content, 1); return 'PASS Show restores one sidebar after manual close'"
+carly ok
+carly close
+
+# Create and switch a real tab without ending either shell.
+new-blocks shell
+tab new
+wait 1500
+carly lua "sidebarTest.secondContent = cx.session:focused(); assert(sidebarTest.secondContent, 'new tab has no content focus'); local pane = cx.session:pane(sidebarTest.secondContent); assert(pane and pane.kind == 'terminal', 'new tab did not focus shell'); sidebarTest.secondTab = cx.session:tab_of(sidebarTest.secondContent); assert(sidebarTest.secondTab and sidebarTest.secondTab ~= sidebarTest.tab, 'new tab was not created'); sidebarTest.secondSidebar = sidebarCheck(sidebarTest.secondTab, sidebarTest.secondContent, 1); assert(#sidebarPanels(sidebarTest.tab) == 1, 'original tab lost its sidebar'); cx.layout:focus(sidebarTest.content); return 'PASS new tab has one sidebar and shell focus'"
+carly ok
+carly close
+wait 1500
+carly lua "assert(sidebarCheck(sidebarTest.tab, sidebarTest.content, 1) == sidebarTest.restored, 'switching recreated original sidebar'); assert(#sidebarPanels(sidebarTest.secondTab) == 1, 'second tab lost its sidebar'); cx.layout:focus(sidebarTest.secondContent); return 'PASS switching back preserves original sidebar and content focus'"
+carly ok
+carly close
+wait 1500
+carly lua "assert(sidebarCheck(sidebarTest.secondTab, sidebarTest.secondContent, 1) == sidebarTest.secondSidebar, 'switching recreated second sidebar'); cx.layout:focus(sidebarTest.content); return 'PASS second tab retains one sidebar and content focus'"
+carly ok
+carly close
+wait 1500
+carly lua "assert(sidebarCheck(sidebarTest.tab, sidebarTest.content, 1) == sidebarTest.restored, 'final original sidebar changed'); assert(#sidebarPanels(sidebarTest.secondTab) == 1, 'final second-tab sidebar missing'); return 'PASS sidebar lifecycle: native click, parked replacement, Hide, manual close, Show, tab switching'"
+carly ok
+carly close

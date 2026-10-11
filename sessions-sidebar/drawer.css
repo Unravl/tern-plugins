@@ -1,0 +1,111 @@
+/* Drawer presentation for the sessions sidebar. Scoped to this plugin's own
+   classes; the native frame overrides live in drawer.luau (title-scoped).
+
+   Tern truncates text when it lays it out and does not re-measure when only
+   CSS changes, so in overlay modes the drawer keeps its full open width at all
+   times: the root clips it while closed and reveals it while open. Opening or
+   closing therefore never changes any node's measured width. */
+
+/* ---------- always: docked in the split tree ---------- */
+.sessions-sidebar-root[data-sidebar-mode="always"] {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.sessions-sidebar-root[data-sidebar-mode="always"] > .sessions-sidebar-tab {
+  display: none;
+}
+
+.sessions-sidebar-root[data-sidebar-mode="always"] > .sessions-sidebar-drawer {
+  width: 100%;
+}
+
+/* ---------- overlay modes (click / hover): closed is a 24px strip ---------- */
+.sessions-sidebar-root[data-sidebar-mode="click"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] {
+  display: block;
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  width: 24px !important;
+  height: 100% !important;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.sessions-sidebar-root[data-sidebar-mode="click"] > .sessions-sidebar-tab,
+.sessions-sidebar-root[data-sidebar-mode="hover"] > .sessions-sidebar-tab {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  z-index: 2;
+  width: 24px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--l2);
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: var(--card);
+  color: var(--t2);
+  cursor: pointer;
+}
+
+/* Fixed width and always visible: the closed root's 24px clip hides it, so Tern
+   measures and truncates text identically whether the drawer is shown or not. */
+.sessions-sidebar-root[data-sidebar-mode="click"] > .sessions-sidebar-drawer,
+.sessions-sidebar-root[data-sidebar-mode="hover"] > .sessions-sidebar-drawer {
+  position: absolute;
+  left: 24px;
+  top: 0;
+  width: 296px;
+  height: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--card);
+}
+
+/* Tern sizes one-line truncation from the floating pane's cells, not this fixed column,
+   so overlay labels also get a geometry-based ellipsis. */
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-name"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-path"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-host-title"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-name"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-path"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-host-title"] {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Hover mode: the closed strip spans the whole left edge, not only the tab. */
+.sessions-sidebar-root[data-sidebar-mode="hover"] > .sessions-sidebar-tab {
+  top: 0;
+  height: 100%;
+  border-radius: 0;
+}
+
+/* ---------- open: hover, click latch, or held by a native prompt/picker ---------- */
+.sessions-sidebar-root[data-sidebar-mode="hover"]:hover,
+.sessions-sidebar-root[data-sidebar-mode="click"][data-sidebar-open="true"],
+.sessions-sidebar-root[data-sidebar-mode="click"][data-sidebar-hold="true"],
+.sessions-sidebar-root[data-sidebar-mode="hover"][data-sidebar-hold="true"] {
+  width: 320px !important;
+  height: 100% !important;
+  top: 0;
+  background: var(--card);
+  box-shadow: 4px 0 16px rgb(0 0 0 / 18%);
+}
+
+/* Closed click mode: only the little tab takes pointer input. */
+.sessions-sidebar-root[data-sidebar-mode="click"][data-sidebar-open="false"][data-sidebar-hold="false"] {
+  top: 8px;
+  height: 40px !important;
+}
+
+.sessions-sidebar-root[data-sidebar-mode="click"][data-sidebar-open="false"][data-sidebar-hold="false"] > .sessions-sidebar-tab {
+  top: 0;
+}

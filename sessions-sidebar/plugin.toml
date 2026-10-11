@@ -1,0 +1,7 @@
+id = "sessions-sidebar"
+name = "Sessions Sidebar"
+description = "Customizable per-host sessions sidebar with icons, paths, activity, folding groups, native editing, and docked, click-tab or hover display."
+window = "window.luau"
+styles = ["sidebar.css", "drawer.css"]
+schema = 1
+version = "1.3.0"
