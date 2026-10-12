@@ -6,15 +6,31 @@ local TITLE_PREFIX = "Sessions Sidebar [ss-"
 local assignedTitles: { [number]: string } = {}
 local pendingTitles: { [number]: string } = {}
 local styledTitles: { [number]: string } = {}
+local styledWidth = 0
+
+-- The drawer's 320px root is canvas px, and Tern scales a canvas by font_size over its
+-- default (15 against 13 makes it 369px). This frame is window px, so it must scale too,
+-- or it clips the gear, + buttons and activity strips.
+local FRAME_WIDTH = 320
+
+local function frameWidth(cx: WindowCx): number
+	local ok, size, default = pcall(function()
+		return cx.settings:get("font_size"), cx.settings:describe("font_size").default
+	end)
+	if not ok or type(size) ~= "number" or type(default) ~= "number" or default <= 0 then
+		return FRAME_WIDTH
+	end
+	return math.ceil(FRAME_WIDTH * size / default)
+end
 
 -- Tern 0.7.3 exposes the outer PiP's title through this aria-label prefix,
 -- not a pane/owner attribute. A random owned title scopes every native override.
--- The actual hover/click states stay inside the canvas; its frame never changes.
+-- The actual hover/click states stay inside the canvas; its frame changes only with font_size.
 local FRAME_CSS = [[
 @ {
  top: 0 !important;
  left: 0 !important;
- width: min(320px, 100%) !important;
+ width: min(WIDTHpx, 100%) !important;
  height: 100% !important;
  transform: none !important;
  scale: 1 !important;
@@ -101,10 +117,10 @@ local function title(cx: WindowCx, pane: number): string
 	error("The sidebar canvas is not available in this window")
 end
 
-local function syncStyles(canvases: { CanvasInfo })
+local function syncStyles(canvases: { CanvasInfo }, width: number)
 	local current: { [number]: string } = {}
 	local present: { [number]: boolean } = {}
-	local changed = false
+	local changed = width ~= styledWidth
 	for _, canvas in canvases do
 		if canvas.owner == tern.plugin.id then
 			present[canvas.pane] = true
@@ -139,11 +155,12 @@ local function syncStyles(canvases: { CanvasInfo })
 	local sheets: { string } = {}
 	for _, value in titles do
 		local selector = '.tn-stage > .tn-pane.pip[aria-label^="' .. value .. ', "]'
-		local sheet = FRAME_CSS:gsub("@", selector)
+		local sheet = FRAME_CSS:gsub("WIDTH", tostring(width)):gsub("@", selector)
 		table.insert(sheets, sheet)
 	end
 	tern.css("drawer-panels", table.concat(sheets, "\n"))
 	styledTitles = current
+	styledWidth = width
 end
 
 local function inTree(tree: TabTree, pane: number): boolean
@@ -230,7 +247,7 @@ local function sync(cx: WindowCx, pane: number, content: number, mode: SidebarMo
 		-- Let the replica mount the scoped title before creating a native PiP.
 		return false, nil
 	end
-	syncStyles(canvases)
+	syncStyles(canvases, frameWidth(cx))
 
 	local floating = false
 	for _, float in layout.floats do
