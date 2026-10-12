@@ -1,6 +1,6 @@
 # Sessions Sidebar for Tern
 
-A native **Sessions** list on the left of each tab: every session grouped by host (**This PC** first, then attached remote hosts), with icons, names, working directories, activity strips and omp agent markers. Click a row to switch. Files: `plugin.toml`, `window.luau`, `sessions.luau`, `session-data.luau`, `agents.luau`, `drawer.luau`, `sidebar.css`, `drawer.css`.
+A native **Sessions** list on the left of each tab: every session grouped by host (**This PC** first, then attached remote hosts), with icons, names, working directories and what each session's omp agents are doing. Click a row to switch. Files: `plugin.toml`, `window.luau`, `sessions.luau`, `session-data.luau`, `agents.luau`, `drawer.luau`, `sidebar.css`, `drawer.css`.
 
 ## Install
 
@@ -18,7 +18,7 @@ From the [tern-plugins](https://github.com/Unravl/tern-plugins) repository, wher
 tern plugin install github.com/Unravl/tern-plugins/sessions-sidebar
 ```
 
-`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.6.1 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
+`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.7.0 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
 
 To develop, use the folder in place instead: `tern plugin link ~/Documents/tern-plugins/sessions-sidebar`. After editing, reload with **`tern plugin reload`** from a terminal (see [Known limits](#known-limits) for why not the palette's *Reload plugins*).
 
@@ -52,32 +52,23 @@ Other palette commands: **Show sessions sidebar**, **Hide sessions sidebar (curr
 
 The sidebar never keeps a tab open on its own. When a tab's last other pane closes (for example its shell exits), is parked or moves away, the sidebar closes too and Tern closes the tab, so no tab is left titled **Sessions Sidebar [ss-…]**. Loading the plugin also closes any such leftover tabs.
 
-## Activity strips
-
-Each activity strip is **4 px wide and 24 px tall**, half the height of its **48 px row**, vertically centered and flush with the row's right edge. Tern's plugin SDK exposes no per-session sleep or daemon-suspend state, so the strip reports what this window can actually observe. Colors come from your Tern theme; hover the strip for its explanation.
-
-| Strip | Meaning |
-| --- | --- |
-| **Active** (accent strip) | The session selected in this window. |
-| **Working** (orange strip) | A content pane of the session reports a running command. |
-| **Loaded** (green strip) | The session's content panes are observable in this window. |
-| **Not loaded** (gray strip) | No content panes of the session are observable in this window. This is **not** a daemon sleep state. |
-| **Unavailable** (red strip) | The host is not connected (connecting, stalled, reconnecting, failed, waiting for key verification) or no longer attached. |
-
 Session renames, creation and closing appear within about a second; **Refresh sessions sidebar** forces an immediate update.
 
-## Agent markers
+## Agent status
 
-A session row shows a marker when an omp agent in one of that session's tabs needs you and you have not visited that tab since:
+The right end of a session row shows what the omp agents in that session's tabs are doing, in large bold marks:
 
-| Marker | Meaning |
+| Mark | Meaning |
 | --- | --- |
-| **?** (amber) | The agent is asking a question and waits for your answer (for example omp's ask prompt). |
-| **✓** (green) | The agent finished a task: its turn ended. |
+| **?** (amber) | An agent is asking a question and waits for your answer (for example omp's ask prompt). |
+| Spinner | An agent is working. |
+| **✓** (green) | An agent finished a task (its turn ended) and you have not visited its tab since. |
 
-Visiting the agent's tab clears its marker: switching to that tab, or to its session when that tab is the one the session shows. The marker comes back only when that agent asks again or finishes another task; an agent in the tab you are looking at never gets one. A **?** also goes away when the question is answered elsewhere. A session with several agents can show both markers; hover one for how many agents it stands for.
+Nothing shows when the session's agents are idle and you have seen how they ended, and nothing marks the session you are on: its row highlight does that. Plain shell commands show nothing.
 
-Agents are Tern agent blocks and shells where `omp` was typed at the prompt, on This PC and on attached remote hosts. Markers follow each agent's progress and Tern's unseen-alert flag as this window sees them, within about a second. They belong to the window and are not saved; after a plugin reload, a finished turn Tern still holds as unseen (its pane has not been focused) shows its tick again.
+The spinner is live: it shows whenever an agent in the session is working, also in the tab you are looking at. **?** and **✓** wait for you. Visiting the agent's tab clears them: switching to that tab, or to its session when that tab is the one the session shows. They come back only when that agent asks again or finishes another task, and an agent in the tab you are looking at never gets one. When an agent with a **✓** starts working again, the spinner replaces the tick. A **?** also goes away when the question is answered elsewhere. A session with several agents can show more than one mark (in the order **?**, spinner, **✓**); hover a mark for how many agents it stands for.
+
+Agents are Tern agent blocks and shells where `omp` was typed at the prompt, on This PC and on attached remote hosts. Marks follow each agent's progress and Tern's unseen-alert flag as this window sees them, within about a second. They belong to the window and are not saved; after a plugin reload, a finished turn Tern still holds as unseen (its pane has not been focused) shows its tick again.
 
 ## Remote hosts
 
@@ -85,7 +76,7 @@ Only hosts already attached to this window are listed: **This PC** first and rem
 
 ## What is saved
 
-Saved in Tern's plugin storage and kept across reloads and restarts: display mode, docked sidebar width, collapsed hosts, host order, session order, host title aliases, host title colors and session icons. Agent markers are not saved. Hosts are identified by `This PC` or the remote's address (else its name), never by window-local IDs; a host that is detached keeps its saved place for when it returns.
+Saved in Tern's plugin storage and kept across reloads and restarts: display mode, docked sidebar width, collapsed hosts, host order, session order, host title aliases, host title colors and session icons. Agent status is not saved. Hosts are identified by `This PC` or the remote's address (else its name), never by window-local IDs; a host that is detached keeps its saved place for when it returns.
 
 Session icons and positions are saved by host plus session name, so they follow a session when you rename it through the sidebar. A session renamed elsewhere, or created later, appears after the ordered ones until you move it. If two sessions on the same host share a name, their icons and positions are kept only for the current window and are not saved; a session never inherits another session's icon (for example after the original of a duplicate name closes).
 
@@ -94,7 +85,7 @@ Session icons and positions are saved by host plus session name, so they follow 
 - **Use `tern plugin reload`, not the palette's *Reload plugins*.** In Tern 0.7.3 the palette action loses the window state of existing plugin canvases; each affected sidebar becomes a blank floating **Canvas** card. The plugin replaces it with a working sidebar within about five seconds, but close the leftover blank cards yourself. The CLI reload, source-file reloads and session switches do not have this problem.
 - The overlay modes style the floating panel through the accessible label Tern 0.7.3 gives plugin canvases (`Sessions Sidebar [ss-…]`). That is not a documented, stable SDK hook; if a future Tern changes it, use **Always expanded**, which needs no such styling.
 - In **Always expanded** mode in a tab with vertically stacked splits, the sidebar fills the height of the leftmost column only; existing splits are never flattened.
-- Agent markers need Tern's agent support (`cx.agents`, verified on **Tern 0.8.2**); without it rows show no markers. A turn too short for the one-second refresh to see it working is detected through Tern's unseen alert, so if omp sends no completion alert such a turn shows no tick. Tern's `agent_finished` event does not fire for these agents in 0.8.2 and is not used.
+- Agent status needs Tern's agent support (`cx.agents`, verified on **Tern 0.8.2**); without it rows show no marks. A turn too short for the one-second refresh to see it working shows no spinner; its tick comes from Tern's unseen alert, so if omp sends no completion alert such a turn shows no tick either. Tern's `agent_finished` event does not fire for these agents in 0.8.2 and is not used.
 - Desktop windows only: Tern's web client has no window Lua runtime.
 
 To remove the plugin, hide or close the sidebars, then run `tern plugin remove sessions-sidebar` (or `tern plugin unlink sessions-sidebar` for a linked development copy). Removing it does not close sidebar panes that are still open.
@@ -115,7 +106,9 @@ For **1.6.0**, isolated native **Tern 0.8.2** checks exercised agent markers wit
 
 For **1.6.1**, isolated native **Tern 0.8.2** checks reproduced the leftover tab (after `exit` in a tab's only shell, 1.6.0 kept the tab open titled **Sessions Sidebar [ss-…]**) and confirmed that the tab now closes. The same holds when the last pane of a background tab closes and when the last pane is parked, and a leftover tab from 1.6.0 closed when the plugin reloaded. The new exit step in `tests/sidebar-lifecycle.txt` fails on 1.6.0 and passes on 1.6.1; `tests/agent-markers.txt` passed too.
 
-The native regression scenarios are `tests/sidebar-lifecycle.txt` (row click keeps terminal focus, parked replacement, Hide, manual close, Show, tab switching, a tab whose shell exits closes) and `tests/agent-markers.txt` (**?** and **✓** for agents in tabs you are not looking at, none in the active tab, cleared by visiting the tab and not brought back by leaving, markers on another session's row, both markers on one row). The lifecycle scenario is verified in **Hover left edge** and **Always expanded** modes; Click tab mode is not supported because its row click needs the drawer open. The agent scenario works in any mode. Run them from this folder in a **fresh isolated window**, never your normal sessions. The window below starts hidden in the background, so it does not take focus:
+For **1.7.0**, isolated native **Tern 0.8.2** checks replaced the activity strips with agent status marks. Stand-in omp agents showed the spinner while working in a background tab and in the tab being looked at, a **✓** after a background finish but none after a finish in view, and the spinner replacing a **✓** when that agent worked again. With **?**, spinner and **✓** on one row, the marks drew at 18 px, weight 900, centered in the 48 px row and ending at the drawer's right edge in Hover left edge and Always expanded modes, and long names and paths still truncated. `tests/agent-markers.txt` (both modes) and `tests/sidebar-lifecycle.txt` passed.
+
+The native regression scenarios are `tests/sidebar-lifecycle.txt` (row click keeps terminal focus, parked replacement, Hide, manual close, Show, tab switching, a tab whose shell exits closes) and `tests/agent-markers.txt` (spinner while an agent works, also in the tab in view; **?** and **✓** for agents in tabs you are not looking at, none in the active tab, cleared by visiting the tab and not brought back by leaving; the spinner replacing a **✓** when work resumes; marks on another session's row; several marks on one row; no activity strips). The lifecycle scenario is verified in **Hover left edge** and **Always expanded** modes; Click tab mode is not supported because its row click needs the drawer open. The agent scenario works in any mode. Run them from this folder in a **fresh isolated window**, never your normal sessions. The window below starts hidden in the background, so it does not take focus:
 
 ```sh
 test_dir="$(mktemp -d /tmp/tern-sidebar-test.XXXXXX)"
@@ -129,7 +122,7 @@ tern ctl --control "$test_dir/control.sock" --file tests/sidebar-lifecycle.txt
 tern ctl --control "$test_dir/control.sock" --file tests/agent-markers.txt
 ```
 
-The `state.json` line stops a fresh config from offering to install omp (and linking it into `~/bin`). The lifecycle scenario creates two extra tabs and exits the last one's shell; the agent scenario writes two recordings to `/tmp/sessions-sidebar-agent-*.jsonl` and opens three tabs and one extra session without closing any pane. Neither closes sessions. Afterwards run `tern ctl --control "$test_dir/control.sock" quit`, then `pkill -f "$test_dir/control.sock"` and `pkill -f "tern daemon --socket $test_dir/daemon.sock"`, and delete `$test_dir`. Tern's [script reference](https://docs.stencil.so/tern/scripts/) documents `ctl`.
+The `state.json` line stops a fresh config from offering to install omp (and linking it into `~/bin`). The lifecycle scenario creates two extra tabs and exits the last one's shell; the agent scenario writes three recordings to `/tmp/sessions-sidebar-agent-*.jsonl` and opens three tabs and one extra session without closing any pane. Neither closes sessions. Afterwards run `tern ctl --control "$test_dir/control.sock" quit`, then `pkill -f "$test_dir/control.sock"` and `pkill -f "tern daemon --socket $test_dir/daemon.sock"`, and delete `$test_dir`. Tern's [script reference](https://docs.stencil.so/tern/scripts/) documents `ctl`.
 
 Optional SDK types and static analysis, with `luau-lsp` installed separately:
 

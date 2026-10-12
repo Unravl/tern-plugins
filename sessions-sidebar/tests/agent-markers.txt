@@ -1,22 +1,29 @@
 # Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab
 # (any display mode). From the plugin folder:
 # tern ctl --control <endpoint> --file tests/agent-markers.txt
-# Needs no fixture files: the first step writes two hand-written TSP recordings to
-# /tmp/sessions-sidebar-agent-finish.jsonl and /tmp/sessions-sidebar-agent-ask.jsonl, played by
-# absolute path (Tern 0.8.2 resolves relative `feed` paths only under STENCIL_FIXTURE_ROOT).
+# Needs no fixture files: the first step writes three hand-written TSP recordings to
+# /tmp/sessions-sidebar-agent-{finish,rework,ask}.jsonl, played by absolute path (Tern 0.8.2
+# resolves relative `feed` paths only under STENCIL_FIXTURE_ROOT).
 # `surface-play … paced` turns the focused pane into a stand-in `omp` agent and keeps playing after
 # focus moves, so its state changes while its tab is not active (`feed` writes only the focused
-# pane, whose tab is then active). finish: OSC 9;4;3 (working), 2.5 s later OSC 9;4;0 (idle);
-# ask: idle, 2.5 s later OSC 9;4;4;50 (paused: waiting_input).
+# pane, whose tab is then active). OSC 9;4;3 is working, 9;4;0 idle, 9;4;4;50 paused (waiting_input).
+# finish: working, idle at 8 s. rework: working, idle at 8 s, working again at 16 s, idle at
+# 24 s. ask: idle, waiting_input at 3 s.
+# The sidebar's 1 s timer can run far slower in a hidden or loaded window, so every check driven
+# by a recording first forces a refresh (`plugins run plugin.sessions-sidebar.refresh`), and each
+# working phase is observed by such a refresh before its finish is checked. Waits are measured from
+# the recording's start, so slow commands only make the idle checks later, never early.
+# Every check also asserts that no row has an activity strip (role sessions-sidebar-status).
 # Opens three tabs and one extra session; closes nothing.
 ready
 wait 1500
-carly lua "agentTest = {}; local function recording(first, later) local nl = string.char(10); return tern.json.encode({ t = 0, dir = 'out', verb = 'osc', body = first }) .. nl .. tern.json.encode({ t = 2500, dir = 'out', verb = 'osc', body = later }) .. nl end; tern.fs.write('/tmp/sessions-sidebar-agent-finish.jsonl', recording('9;4;3', '9;4;0')); tern.fs.write('/tmp/sessions-sidebar-agent-ask.jsonl', recording('9;4;0', '9;4;4;50')); function agentMarksOf(session) local tab = cx.session:tab_of(cx.session:focused()); local sidebar; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then sidebar = canvas.pane end end; assert(sidebar, 'no sidebar in the active tab'); local info = cx.canvas:get(sidebar); assert(info and info.view, 'sidebar has no view'); local rowKey = 'session-' .. string.format('%.0f', session); local found = {}; local function walk(node, inRow) local p = node.p or {}; local here = inRow or p.key == rowKey; if p.key == rowKey then found.row = true end; if here and p.role == 'sessions-sidebar-question' then found.question = p.text; found.questionTitle = p.title end; if here and p.role == 'sessions-sidebar-done' then found.done = p.text; found.doneTitle = p.title end; for _, child in node.c or {} do walk(child, here) end end; walk(info.view, false); assert(found.row, 'no sidebar row for session ' .. rowKey); return found end; function expectMarks(label, session, question, done) local m = agentMarksOf(session); assert((m.question ~= nil) == question, label .. ': question marker is ' .. tostring(m.question)); assert((m.done ~= nil) == done, label .. ': done marker is ' .. tostring(m.done)); assert(m.question == nil or m.question == '?', label .. ': question text ' .. tostring(m.question)); assert(m.done == nil or m.done == utf8.char(0x2713), label .. ': done text ' .. tostring(m.done)); return m end; agentTest.home = cx.session:focused(); assert(agentTest.home, 'no content focus'); agentTest.homeTab = cx.session:tab_of(agentTest.home); agentTest.session = cx.sessions:current().id; agentTest.sessionName = cx.sessions:current().name; expectMarks('start', agentTest.session, false, false); return 'PASS setup: no markers without agents'"
+carly lua "agentTest = {}; local function recording(steps) local nl = string.char(10); local out = ''; for _, step in steps do out = out .. tern.json.encode({ t = step[1], dir = 'out', verb = 'osc', body = step[2] }) .. nl end; return out end; tern.fs.write('/tmp/sessions-sidebar-agent-finish.jsonl', recording({ { 0, '9;4;3' }, { 8000, '9;4;0' } })); tern.fs.write('/tmp/sessions-sidebar-agent-rework.jsonl', recording({ { 0, '9;4;3' }, { 8000, '9;4;0' }, { 16000, '9;4;3' }, { 24000, '9;4;0' } })); tern.fs.write('/tmp/sessions-sidebar-agent-ask.jsonl', recording({ { 0, '9;4;0' }, { 3000, '9;4;4;50' } })); function agentMarksOf(session) local tab = cx.session:tab_of(cx.session:focused()); local sidebar; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then sidebar = canvas.pane end end; assert(sidebar, 'no sidebar in the active tab'); local info = cx.canvas:get(sidebar); assert(info and info.view, 'sidebar has no view'); local rowKey = 'session-' .. string.format('%.0f', session); local found = {}; local function walk(node, inRow) local p = node.p or {}; local here = inRow or p.key == rowKey; if p.key == rowKey then found.row = true end; if p.role == 'sessions-sidebar-status' then found.status = true end; if here and p.role == 'sessions-sidebar-question' then found.question = p.text; found.questionTitle = p.title end; if here and p.role == 'sessions-sidebar-working' then found.working = node.k; found.workingStyle = p.style; found.workingTitle = p.title end; if here and p.role == 'sessions-sidebar-done' then found.done = p.text; found.doneTitle = p.title end; for _, child in node.c or {} do walk(child, here) end end; walk(info.view, false); assert(found.row, 'no sidebar row for session ' .. rowKey); return found end; function expectMarks(label, session, question, working, done) local m = agentMarksOf(session); assert(not m.status, label .. ': a row still has an activity strip'); assert((m.question ~= nil) == question, label .. ': question marker is ' .. tostring(m.question)); assert((m.working ~= nil) == working, label .. ': working spinner is ' .. tostring(m.working)); assert((m.done ~= nil) == done, label .. ': done marker is ' .. tostring(m.done)); assert(m.question == nil or m.question == '?', label .. ': question text ' .. tostring(m.question)); assert(m.working == nil or (m.working == 'spinner' and m.workingStyle == 'starburst'), label .. ': working node ' .. tostring(m.working) .. ' ' .. tostring(m.workingStyle)); assert(m.done == nil or m.done == utf8.char(0x2713), label .. ': done text ' .. tostring(m.done)); return m end; agentTest.home = cx.session:focused(); assert(agentTest.home, 'no content focus'); agentTest.homeTab = cx.session:tab_of(agentTest.home); agentTest.session = cx.sessions:current().id; agentTest.sessionName = cx.sessions:current().name; expectMarks('start', agentTest.session, false, false, false); return 'PASS setup: no markers without agents'"
 carly ok
 carly close
 new-blocks shell
 
-# (c) An agent finishing in the active tab never gets a marker, and leaving does not add one.
+# An agent working in the active tab shows the spinner; when it finishes there, no tick appears,
+# and leaving does not add one.
 carly lua "cx.layout:new_tab(); return 'opened tab B'"
 carly ok
 carly close
@@ -25,16 +32,26 @@ carly lua "agentTest.b = cx.session:focused(); agentTest.tabB = cx.session:tab_o
 carly ok
 carly close
 surface-play /tmp/sessions-sidebar-agent-finish.jsonl paced
-wait 3500
-carly lua "local found; for _, agent in cx.agents:list() do if agent.pane == agentTest.b then found = agent end end; assert(found and found.state == 'idle', 'stand-in agent did not finish: ' .. tostring(found and found.state)); expectMarks('active-tab finish', agentTest.session, false, false); cx.layout:focus(agentTest.home); return 'PASS active-tab agent finished without a marker'"
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "local m = expectMarks('active-tab working', agentTest.session, false, true, false); assert(m.workingTitle == 'omp is working', 'working tooltip ' .. tostring(m.workingTitle)); return 'PASS active-tab agent shows the spinner'"
 carly ok
 carly close
-wait 1500
-carly lua "expectMarks('after leaving a finished active tab', agentTest.session, false, false); return 'PASS leaving the tab adds no marker'"
+wait 8000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "local found; for _, agent in cx.agents:list() do if agent.pane == agentTest.b then found = agent end end; assert(found and found.state == 'idle', 'stand-in agent did not finish: ' .. tostring(found and found.state)); expectMarks('active-tab finish', agentTest.session, false, false, false); cx.layout:focus(agentTest.home); return 'PASS active-tab agent finished without a marker'"
+carly ok
+carly close
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('after leaving a finished active tab', agentTest.session, false, false, false); return 'PASS leaving the tab adds no marker'"
 carly ok
 carly close
 
-# (b) Working -> idle in a non-active tab shows the tick on the session row.
+# An agent working in a non-active tab shows the spinner and no tick; once idle, only the tick.
 carly lua "cx.layout:focus(agentTest.b); return 'focused B'"
 carly ok
 carly close
@@ -42,25 +59,75 @@ surface-play /tmp/sessions-sidebar-agent-finish.jsonl paced
 carly lua "cx.layout:focus(agentTest.home); return 'left B while working'"
 carly ok
 carly close
-wait 3500
-carly lua "local m = expectMarks('background finish', agentTest.session, false, true); assert(m.doneTitle == 'omp finished a task', 'done tooltip ' .. tostring(m.doneTitle)); return 'PASS background finish shows tick'"
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "local m = expectMarks('background working', agentTest.session, false, true, false); assert(m.workingTitle == 'omp is working', 'working tooltip ' .. tostring(m.workingTitle)); return 'PASS background working shows the spinner'"
+carly ok
+carly close
+wait 8500
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "local m = expectMarks('background finish', agentTest.session, false, false, true); assert(m.doneTitle == 'omp finished a task', 'done tooltip ' .. tostring(m.doneTitle)); return 'PASS background finish shows only the tick'"
 carly ok
 carly close
 
-# (d) Visiting the agent's tab clears its marker; leaving again does not bring it back.
+# Visiting the agent's tab clears its marker; leaving again does not bring it back.
 carly lua "cx.layout:focus(agentTest.b); return 'visiting B'"
 carly ok
 carly close
-wait 1500
-carly lua "expectMarks('visiting the agent tab', agentTest.session, false, false); cx.layout:focus(agentTest.home); return 'PASS visiting clears the tick'"
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('visiting the agent tab', agentTest.session, false, false, false); cx.layout:focus(agentTest.home); return 'PASS visiting clears the tick'"
 carly ok
 carly close
-wait 2500
-carly lua "expectMarks('after visiting', agentTest.session, false, false); return 'PASS cleared tick stays cleared'"
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('after visiting', agentTest.session, false, false, false); return 'PASS cleared tick stays cleared'"
 carly ok
 carly close
 
-# (a) An agent in a non-active tab starting to wait for input shows "?".
+# New work replaces a tick with the spinner; the next finish brings the tick back.
+carly lua "cx.layout:focus(agentTest.b); return 'focused B'"
+carly ok
+carly close
+surface-play /tmp/sessions-sidebar-agent-rework.jsonl paced
+carly lua "cx.layout:focus(agentTest.home); return 'left B while working'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('first working', agentTest.session, false, true, false); return 'PASS first working phase observed'"
+carly ok
+carly close
+wait 9000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('first finish', agentTest.session, false, false, true); return 'PASS first finish shows the tick'"
+carly ok
+carly close
+wait 8000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('working again', agentTest.session, false, true, false); return 'PASS new work replaced the tick with the spinner'"
+carly ok
+carly close
+wait 8000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('second finish', agentTest.session, false, false, true); cx.layout:focus(agentTest.b); return 'PASS second finish shows the tick again'"
+carly ok
+carly close
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('visiting after rework', agentTest.session, false, false, false); cx.layout:focus(agentTest.home); return 'PASS visiting clears the second tick'"
+carly ok
+carly close
+wait 1000
+
+# An agent in a non-active tab starting to wait for input shows "?".
 carly lua "cx.layout:focus(agentTest.b); return 'focused B'"
 carly ok
 carly close
@@ -68,8 +135,10 @@ surface-play /tmp/sessions-sidebar-agent-ask.jsonl paced
 carly lua "cx.layout:focus(agentTest.home); return 'left B before its question'"
 carly ok
 carly close
-wait 3500
-carly lua "local m = expectMarks('background question', agentTest.session, true, false); assert(m.questionTitle == 'omp is asking a question', 'question tooltip ' .. tostring(m.questionTitle)); return 'PASS background question shows ?'"
+wait 4000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "local m = expectMarks('background question', agentTest.session, true, false, false); assert(m.questionTitle == 'omp is asking a question', 'question tooltip ' .. tostring(m.questionTitle)); return 'PASS background question shows ?'"
 carly ok
 carly close
 
@@ -85,8 +154,15 @@ surface-play /tmp/sessions-sidebar-agent-finish.jsonl paced
 carly lua "cx.layout:focus(agentTest.home); return 'left C while working'"
 carly ok
 carly close
-wait 3500
-carly lua "expectMarks('question and tick', agentTest.session, true, true); return 'PASS one row shows ? and tick'"
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('question and working', agentTest.session, true, true, false); return 'PASS working phase of C observed beside the question'"
+carly ok
+carly close
+wait 8500
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('question and tick', agentTest.session, true, false, true); return 'PASS one row shows ? and tick'"
 carly ok
 carly close
 
@@ -94,16 +170,20 @@ carly close
 carly lua "cx.layout:focus(agentTest.b); return 'visiting B'"
 carly ok
 carly close
-wait 1500
-carly lua "expectMarks('visiting B', agentTest.session, false, true); cx.layout:focus(agentTest.home); return 'PASS visiting B cleared only its question'"
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('visiting B', agentTest.session, false, false, true); cx.layout:focus(agentTest.home); return 'PASS visiting B cleared only its question'"
 carly ok
 carly close
-wait 1500
-carly lua "expectMarks('after visiting B', agentTest.session, false, true); return 'PASS question stays cleared; tick remains'"
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('after visiting B', agentTest.session, false, false, true); return 'PASS question stays cleared; tick remains'"
 carly ok
 carly close
 
-# (e) An agent in another session marks that session's row.
+# An agent in another session marks that session's row.
 carly lua "agentTest.other = cx.sessions:create({ name = 'agent-markers-other' }).id; return 'created another session'"
 carly ok
 carly close
@@ -115,18 +195,29 @@ surface-play /tmp/sessions-sidebar-agent-finish.jsonl paced
 carly lua "cx.sessions:switch(agentTest.session); return 'back to the first session while working'"
 carly ok
 carly close
-wait 3500
-carly lua "assert(cx.session:focused() == agentTest.home, 'did not return to the home tab'); expectMarks('other session', agentTest.other, false, true); expectMarks('home session unchanged', agentTest.session, false, true); return 'PASS other-session agent marks its own row'"
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "assert(cx.session:focused() == agentTest.home, 'did not return to the home tab'); expectMarks('other session working', agentTest.other, false, true, false); return 'PASS other-session agent working observed'"
+carly ok
+carly close
+wait 8500
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('other session', agentTest.other, false, false, true); expectMarks('home session unchanged', agentTest.session, false, false, true); return 'PASS other-session agent marks its own row'"
 carly ok
 carly close
 carly lua "cx.sessions:switch(agentTest.other); return 'visiting the other session'"
 carly ok
 carly close
-wait 1500
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
 carly lua "cx.sessions:switch(agentTest.session); return 'back home'"
 carly ok
 carly close
-wait 1500
-carly lua "expectMarks('after visiting other session', agentTest.other, false, false); return 'PASS agent markers: active tab, background finish and question, visit clears, both markers, other session'"
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "expectMarks('after visiting other session', agentTest.other, false, false, false); return 'PASS agent markers: active-tab spinner without tick, background spinner then tick, visit clears, new work replaces tick, question, both markers, other session, no strips'"
 carly ok
 carly close

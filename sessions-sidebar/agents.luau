@@ -1,11 +1,14 @@
 --!strict
--- Per-window omp agent markers for session rows: "question" while an agent waits for
--- input, "done" after it finishes a turn. In-memory only; window ids are never persisted.
--- Marks change only on observed edges, so visiting the agent's tab clears its mark and
--- leaving again does not bring it back until a new question or finish.
+-- Per-window omp agent status for session rows: "question" while an agent waits for
+-- input, "working" while it works, "done" after it finishes a turn. In-memory only;
+-- window ids are never persisted. Question and done marks change only on observed edges,
+-- so visiting the agent's tab clears its mark and leaving again does not bring it back
+-- until a new question or finish. Working is live: it shows even in the active tab, and
+-- new work replaces an earlier done mark.
 
-export type Counts = { question: number, done: number }
--- Session id key (string.format("%.0f", id)) -> marked agent counts; sessions without marks are absent.
+export type Counts = { question: number, working: number, done: number }
+-- Session id key (string.format("%.0f", id)) -> agent counts per display state; sessions
+-- whose counts are all zero are absent.
 export type Marks = { [string]: Counts }
 
 type State = "idle" | "working" | "waiting_input" | "exited"
@@ -29,9 +32,8 @@ end
 
 local function apply(entry: Tracked, state: State, alert: boolean, active: boolean)
 	local seen = entry.seen
-	if active then
-		entry.mark = nil
-	elseif state == "exited" then
+	if active or state == "exited" or state == "working" then
+		-- Working supersedes an earlier finish; the turn now running brings its own tick.
 		entry.mark = nil
 	else
 		if entry.mark == "question" and state ~= "waiting_input" then
@@ -94,22 +96,31 @@ local function observe(cx: WindowCx, activeTab: number?)
 	end
 end
 
+-- Each agent counts once, by precedence: question > working > done.
 local function marks(): Marks
 	local result: Marks = {}
 	for _, entry in tracked do
 		local session = entry.session
+		local seen = entry.seen
+		if not session or not seen then
+			continue
+		end
 		local mark = entry.mark
-		if session and mark then
-			local counts = result[session]
-			if not counts then
-				counts = { question = 0, done = 0 }
-				result[session] = counts
-			end
-			if mark == "question" then
-				counts.question += 1
-			else
-				counts.done += 1
-			end
+		local working = seen.state == "working"
+		if not mark and not working then
+			continue
+		end
+		local counts = result[session]
+		if not counts then
+			counts = { question = 0, working = 0, done = 0 }
+			result[session] = counts
+		end
+		if mark == "question" then
+			counts.question += 1
+		elseif working then
+			counts.working += 1
+		else
+			counts.done += 1
 		end
 	end
 	return result

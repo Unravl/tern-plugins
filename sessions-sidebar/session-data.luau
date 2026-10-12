@@ -1,12 +1,9 @@
 --!strict
 
 export type Icon = { kind: "named" | "glyph", value: string }
-export type Status = "active" | "working" | "loaded" | "unloaded" | "unavailable"
 export type SidebarMode = "always" | "click" | "hover"
 export type SessionMetadata = {
 	path: string,
-	status: Status,
-	statusDetail: string,
 	icon: Icon,
 }
 export type Snapshot = {
@@ -25,13 +22,10 @@ export type Snapshot = {
 type Values = { [string]: any }
 type NameCounts = { [string]: number }
 type RememberedIcon = { host: string, name: string, icon: Icon?, unique: boolean }
-type Observed = { path: string, priority: number, content: boolean, busy: boolean }
+type Observed = { path: string, priority: number }
 type ObservedTab = {
 	info: TabInfo,
 	session: Observed?,
-	content: boolean,
-	excluded: boolean,
-	notExited: boolean,
 }
 
 local HOST_TITLES = "sidebar.host-titles.v1"
@@ -413,13 +407,11 @@ local function snapshot(
 		hostRank = {},
 		sessionRank = {},
 	}
-	local byHost: { [string]: ManagedHost } = {}
 	local stableHosts: { [string]: string } = {}
 	local names: { [string]: NameCounts } = {}
 	for _, host in hosts do
 		local key = idKey(host.id)
 		local stable = hostKey(host)
-		byHost[key] = host
 		stableHosts[key] = stable
 		names[key] = {}
 		result.hostTitles[key] = displayTitle(titles, host)
@@ -452,7 +444,7 @@ local function snapshot(
 	for _, row in rows do
 		local key = idKey(row.id)
 		present[key] = true
-		observed[key] = { path = "", priority = 0, content = false, busy = false }
+		observed[key] = { path = "", priority = 0 }
 		local counts = names[idKey(row.host)]
 		if counts then
 			counts[row.name] = (counts[row.name] or 0) + 1
@@ -472,9 +464,6 @@ local function snapshot(
 		byTab[idKey(tab.id)] = {
 			info = tab,
 			session = observed[idKey(tab.session)],
-			content = false,
-			excluded = false,
-			notExited = false,
 		}
 		if tab.pane == focused then
 			selected = tab
@@ -491,19 +480,9 @@ local function snapshot(
 		-- An owner-tagged canvas can appear before its owner replica. Do not use
 		-- that unresolved canvas's cwd as content until its owner is known.
 		if owner == tern.plugin.id or (pane.block == "tern.canvas" and not owner) then
-			tab.excluded = true
 			continue
 		end
 		local session = tab.session
-		tab.content = true
-		session.content = true
-		if pane.exited == nil then
-			tab.notExited = true
-			if pane.busy == true or pane.running ~= nil then
-				session.busy = true
-			end
-		end
-
 		local path = pane.cwd or ""
 		if path == "" and tab.info.pane == pane.pane then
 			path = tab.info.cwd or ""
@@ -529,20 +508,11 @@ local function snapshot(
 			end
 		end
 	end
-	for _, tab in byTab do
-		local session = tab.session
-		-- A tab-wide busy flag cannot identify its source when a sidebar is
-		-- present. In mixed tabs only actual content-pane work counts.
-		if session and tab.content and not tab.excluded and tab.notExited and tab.info.busy then
-			session.busy = true
-		end
-	end
 
 	local iconsChanged = false
 	for _, row in rows do
 		local key = idKey(row.id)
 		local hostId = idKey(row.host)
-		local host = byHost[hostId]
 		local stable = stableHosts[hostId]
 		local info = observed[key]
 		local icon: Icon? = nil
@@ -563,28 +533,7 @@ local function snapshot(
 			rememberedIcons[key] = nil
 		end
 
-		local status: Status
-		local detail: string
-		if not host then
-			status = "unavailable"
-			detail = "Host is not attached to this window."
-		elseif host.state ~= "connected" then
-			status = "unavailable"
-			detail = "Host state: " .. host.state .. "; content metadata is unavailable."
-		elseif row.current then
-			status = "active"
-			detail = if info.busy then "Selected in this window; content command work is reported." else "Selected in this window."
-		elseif info.busy then
-			status = "working"
-			detail = "Content command work is reported in this window."
-		elseif info.content then
-			status = "loaded"
-			detail = "Content panes are observable in this window."
-		else
-			status = "unloaded"
-			detail = "No content panes are observable in this window; this is not a daemon sleep state."
-		end
-		result.sessions[key] = { path = info.path, status = status, statusDetail = detail, icon = icon or DEFAULT_ICON }
+		result.sessions[key] = { path = info.path, icon = icon or DEFAULT_ICON }
 	end
 	for key in rememberedIcons do
 		if not present[key] then

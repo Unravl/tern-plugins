@@ -109,13 +109,15 @@ local function displayPath(path: string): string
 	return path
 end
 
--- Overlay drawers have an approximately 247px path column at 11px monospace; use a
+-- Overlay drawers have an approximately 259px path column at 11px monospace; use a
 -- conservative 35-cell budget. Tern's own truncation measures the floating pane's cells,
 -- not that column. Drop whole leading directories so the meaningful end stays visible;
 -- docked mode keeps Tern's native truncation.
 local OVERLAY_PATH_CELLS = 35
--- Cells the agent-marker column takes from the overlay path column (marker plus row gap).
-local MARK_CELLS = 3
+-- Cells each agent glyph takes from the overlay path column (about 6.6px per cell): a 16px
+-- glyph slot or the 21.6px spinner window, the 2px gap between glyphs, and its share of the
+-- 8px row gap and the marks' 4px right margin. Measured: ?, spinner and ✓ take 69.6px.
+local MARK_CELLS = 4
 
 local function fitPath(path: string, cells: number): string
 	local length = utf8.len(path) or #path
@@ -138,29 +140,25 @@ local function fitPath(path: string, cells: number): string
 	return "…" .. tail
 end
 
-local statusLabels: { [string]: string } = {
-	active = "Active",
-	working = "Working",
-	loaded = "Loaded",
-	unloaded = "Not loaded",
-	unavailable = "Unavailable",
-}
-
-local statusTones: { [string]: string } = {
-	active = "accent",
-	working = "pending",
-	loaded = "success",
-	unloaded = "muted",
-	unavailable = "error",
-}
-
 local function plural(count: number, one: string, many: string): string
 	return if count == 1 then one else tostring(count) .. " " .. many
 end
 
--- "?" (asking) before "✓" (finished); nil when the session has no marked agents.
+local function glyph(key: string, text: string, tone: string, title: string): Node
+	return ui.el("span", {
+		key = key,
+		role = "sessions-sidebar-" .. key,
+		text = text,
+		tone = tone,
+		title = title,
+		aria = title,
+		shrink = 0,
+	})
+end
+
+-- "?" (asking), spinner (working), "✓" (finished); nil when no agent in the session has one.
 local function agentMarks(counts: agents.Counts?): (Node?, number)
-	if not counts or counts.question + counts.done == 0 then
+	if not counts then
 		return nil, 0
 	end
 	local glyphs: { Node } = {}
@@ -168,34 +166,31 @@ local function agentMarks(counts: agents.Counts?): (Node?, number)
 	if counts.question > 0 then
 		local title = plural(counts.question, "omp is asking a question", "omp agents are asking questions")
 		table.insert(titles, title)
-		table.insert(glyphs, ui.el("span", {
-			key = "question",
-			role = "sessions-sidebar-question",
-			text = "?",
-			tone = "warning",
+		table.insert(glyphs, glyph("question", "?", "warning", title))
+	end
+	if counts.working > 0 then
+		local title = plural(counts.working, "omp is working", "omp agents are working")
+		table.insert(titles, title)
+		table.insert(glyphs, ui.node("spinner", {
+			key = "working",
+			role = "sessions-sidebar-working",
+			style = "starburst",
 			title = title,
 			aria = title,
-			shrink = 0,
 		}))
 	end
 	if counts.done > 0 then
 		local title = plural(counts.done, "omp finished a task", "omp agents finished tasks")
 		table.insert(titles, title)
-		table.insert(glyphs, ui.el("span", {
-			key = "done",
-			role = "sessions-sidebar-done",
-			text = "✓",
-			tone = "success",
-			title = title,
-			aria = title,
-			shrink = 0,
-		}))
+		table.insert(glyphs, glyph("done", "✓", "success", title))
 	end
-	local title = table.concat(titles, " · ")
+	if #glyphs == 0 then
+		return nil, 0
+	end
 	return ui.el("span", {
 		key = "marks",
 		role = "sessions-sidebar-marks",
-		title = title,
+		title = table.concat(titles, " · "),
 		shrink = 0,
 	}, glyphs), #glyphs
 end
@@ -491,8 +486,6 @@ local function build(
 				path = fitPath(path, OVERLAY_PATH_CELLS - MARK_CELLS * markCount)
 			end
 			local pathTitle = if metadata.path == "" then "Path unavailable" else metadata.path
-			local status = statusLabels[metadata.status]
-			local statusTitle = status .. " · " .. metadata.statusDetail
 			local props: { [string]: any } = {
 				key = "session-" .. sessionKey,
 				role = if session.current then "sessions-sidebar-current" else "sessions-sidebar-session",
@@ -530,17 +523,9 @@ local function build(
 				}),
 			}
 			if markNode then
-				-- Between the labels and the strip: labels shrink, the strip stays flush right.
+				-- Flush right after the labels, which shrink to make room.
 				table.insert(rowChildren, markNode)
 			end
-			table.insert(rowChildren, ui.el("span", {
-				key = "status",
-				role = "sessions-sidebar-status",
-				tone = statusTones[metadata.status],
-				title = statusTitle,
-				aria = statusTitle,
-				shrink = 0,
-			}))
 			table.insert(section, with(ui.row(rowChildren), props))
 
 			addSignature(signature, sessionKey)
@@ -550,9 +535,9 @@ local function build(
 			addSignature(signature, metadata.icon.kind)
 			addSignature(signature, metadata.icon.value)
 			addSignature(signature, metadata.path)
-			addSignature(signature, metadata.status)
-			addSignature(signature, metadata.statusDetail)
-			addSignature(signature, if counts then tostring(counts.question) .. "/" .. tostring(counts.done) else "")
+			addSignature(signature, if counts
+				then tostring(counts.question) .. "/" .. tostring(counts.working) .. "/" .. tostring(counts.done)
+				else "")
 		end
 
 		if not group.collapsed and #group.rows == 0 then

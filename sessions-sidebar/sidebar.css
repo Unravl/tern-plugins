@@ -180,37 +180,36 @@
 	color: var(--t1);
 }
 
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-status"] {
-	box-sizing: border-box;
-	display: inline-block;
-	width: 4px;
-	height: 24px;
-	flex-shrink: 0;
-	align-self: center;
-	border: 0;
-	border-radius: 0;
-	background-color: var(--tc);
-}
-
-/* omp agent markers: "?" asking, "✓" finished. Fixed-size glyphs so the overlay path budget holds. */
+/* omp agent status: "?" asking, starburst spinner working, "✓" finished. Fixed-size slots so
+   the overlay path budget (MARK_CELLS in sessions.luau) holds. */
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-marks"] {
 	display: inline-flex;
 	align-items: center;
 	align-self: center;
 	gap: 2px;
+	margin-right: 4px;
 	flex-shrink: 0;
 }
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-question"],
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-done"] {
 	display: inline-block;
-	width: 12px;
+	width: 16px;
 	flex-shrink: 0;
-	font-size: 14px;
-	line-height: 16px;
-	font-weight: 700;
+	font-size: 18px;
+	line-height: 24px;
+	font-weight: 900;
 	text-align: center;
 	color: var(--tc);
+}
+
+/* The frame window is 1.2em wide and --sf-lh tall: 21.6px by 24px at the glyphs' size. */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-working"] {
+	--sf-lh: 24px;
+	flex-shrink: 0;
+	font-size: 18px;
+	line-height: 24px;
+	font-weight: 900;
 }
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-empty"] {
