@@ -192,6 +192,27 @@
 	background-color: var(--tc);
 }
 
+/* omp agent markers: "?" asking, "✓" finished. Fixed-size glyphs so the overlay path budget holds. */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-marks"] {
+	display: inline-flex;
+	align-items: center;
+	align-self: center;
+	gap: 2px;
+	flex-shrink: 0;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-question"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-done"] {
+	display: inline-block;
+	width: 12px;
+	flex-shrink: 0;
+	font-size: 14px;
+	line-height: 16px;
+	font-weight: 700;
+	text-align: center;
+	color: var(--tc);
+}
+
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-empty"] {
 	padding: 3px 6px 3px 16px;
 	color: var(--t3);

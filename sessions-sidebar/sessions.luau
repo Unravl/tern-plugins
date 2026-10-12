@@ -1,5 +1,6 @@
 --!strict
 
+local agents = require("./agents")
 local data = require("./session-data")
 
 export type Node = {
@@ -113,6 +114,8 @@ end
 -- not that column. Drop whole leading directories so the meaningful end stays visible;
 -- docked mode keeps Tern's native truncation.
 local OVERLAY_PATH_CELLS = 35
+-- Cells the agent-marker column takes from the overlay path column (marker plus row gap).
+local MARK_CELLS = 3
 
 local function fitPath(path: string, cells: number): string
 	local length = utf8.len(path) or #path
@@ -151,7 +154,59 @@ local statusTones: { [string]: string } = {
 	unavailable = "error",
 }
 
-local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot: data.Snapshot, display: Display): BuiltView
+local function plural(count: number, one: string, many: string): string
+	return if count == 1 then one else tostring(count) .. " " .. many
+end
+
+-- "?" (asking) before "✓" (finished); nil when the session has no marked agents.
+local function agentMarks(counts: agents.Counts?): (Node?, number)
+	if not counts or counts.question + counts.done == 0 then
+		return nil, 0
+	end
+	local glyphs: { Node } = {}
+	local titles: { string } = {}
+	if counts.question > 0 then
+		local title = plural(counts.question, "omp is asking a question", "omp agents are asking questions")
+		table.insert(titles, title)
+		table.insert(glyphs, ui.el("span", {
+			key = "question",
+			role = "sessions-sidebar-question",
+			text = "?",
+			tone = "warning",
+			title = title,
+			aria = title,
+			shrink = 0,
+		}))
+	end
+	if counts.done > 0 then
+		local title = plural(counts.done, "omp finished a task", "omp agents finished tasks")
+		table.insert(titles, title)
+		table.insert(glyphs, ui.el("span", {
+			key = "done",
+			role = "sessions-sidebar-done",
+			text = "✓",
+			tone = "success",
+			title = title,
+			aria = title,
+			shrink = 0,
+		}))
+	end
+	local title = table.concat(titles, " · ")
+	return ui.el("span", {
+		key = "marks",
+		role = "sessions-sidebar-marks",
+		title = title,
+		shrink = 0,
+	}, glyphs), #glyphs
+end
+
+local function build(
+	hosts: { ManagedHost },
+	rows: { ManagedSession },
+	snapshot: data.Snapshot,
+	display: Display,
+	marks: agents.Marks?
+): BuiltView
 	local groups: { Group } = {}
 	local byHost: { [string]: Group } = {}
 	for _, host in hosts do
@@ -429,9 +484,11 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 				iconProps.text = metadata.icon.value
 				icon = ui.el("span", iconProps)
 			end
+			local counts = if marks then marks[sessionKey] else nil
+			local markNode, markCount = agentMarks(counts)
 			local path = if metadata.path == "" then "Path unavailable" else displayPath(metadata.path)
 			if snapshot.sidebarMode ~= "always" then
-				path = fitPath(path, OVERLAY_PATH_CELLS)
+				path = fitPath(path, OVERLAY_PATH_CELLS - MARK_CELLS * markCount)
 			end
 			local pathTitle = if metadata.path == "" then "Path unavailable" else metadata.path
 			local status = statusLabels[metadata.status]
@@ -448,7 +505,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			if not connected then
 				props.tone = "muted"
 			end
-			table.insert(section, with(ui.row({
+			local rowChildren: { Node } = {
 				icon,
 				with(ui.col({
 					with(ui.text(label), {
@@ -471,15 +528,20 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 					grow = 1,
 					shrink = 1,
 				}),
-				ui.el("span", {
-					key = "status",
-					role = "sessions-sidebar-status",
-					tone = statusTones[metadata.status],
-					title = statusTitle,
-					aria = statusTitle,
-					shrink = 0,
-				}),
-			}), props))
+			}
+			if markNode then
+				-- Between the labels and the strip: labels shrink, the strip stays flush right.
+				table.insert(rowChildren, markNode)
+			end
+			table.insert(rowChildren, ui.el("span", {
+				key = "status",
+				role = "sessions-sidebar-status",
+				tone = statusTones[metadata.status],
+				title = statusTitle,
+				aria = statusTitle,
+				shrink = 0,
+			}))
+			table.insert(section, with(ui.row(rowChildren), props))
 
 			addSignature(signature, sessionKey)
 			addSignature(signature, session.name)
@@ -490,6 +552,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 			addSignature(signature, metadata.path)
 			addSignature(signature, metadata.status)
 			addSignature(signature, metadata.statusDetail)
+			addSignature(signature, if counts then tostring(counts.question) .. "/" .. tostring(counts.done) else "")
 		end
 
 		if not group.collapsed and #group.rows == 0 then

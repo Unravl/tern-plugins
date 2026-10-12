@@ -1,7 +1,7 @@
 id = "sessions-sidebar"
 name = "Sessions Sidebar"
-description = "Customizable per-host sessions sidebar with icons, paths, activity, folding groups, pick-and-place ordering, native editing, and docked, click-tab or hover display."
+description = "Customizable per-host sessions sidebar with icons, paths, activity, omp agent question and finished markers, folding groups, pick-and-place ordering, native editing, and docked, click-tab or hover display."
 window = "window.luau"
 styles = ["sidebar.css", "drawer.css"]
 schema = 1
-version = "1.5.2"
+version = "1.6.0"

@@ -1,4 +1,5 @@
 --!strict
+local agents = require("./agents")
 local sessions = require("./sessions")
 local data = require("./session-data")
 local drawer = require("./drawer")
@@ -487,6 +488,8 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 		end
 		return
 	end
+	-- Every refresh (focus, tab, pane events and the 1s timer) samples agent states once.
+	agents.observe(cx, tab)
 	local state = sidebar(tab)
 	local tabKey = key(tab)
 	local listed, canvasRows = call(cx, "listing canvases", function()
@@ -628,7 +631,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 	local snapshot = data.snapshot(cx, hosts, rows, preferredContent)
 	syncColorStyles(snapshot)
 	syncDisplay()
-	local model = sessions.build(hosts, rows, snapshot, display)
+	local model = sessions.build(hosts, rows, snapshot, display, agents.marks())
 	if selected then
 		if state.signature ~= model.signature then
 			local updated = call(cx, "updating sidebar " .. key(selected), function()
@@ -1118,7 +1121,7 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	local snapshot = data.snapshot(cx, hosts, rows, preferredContent)
 	if not target then
 		syncDisplay()
-		target = sessions.build(hosts, rows, snapshot, display).targets[action]
+		target = sessions.build(hosts, rows, snapshot, display, agents.marks()).targets[action]
 		if not target then
 			return false
 		end
