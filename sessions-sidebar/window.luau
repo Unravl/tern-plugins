@@ -331,74 +331,123 @@ local function dockedRatio(cx: WindowCx, pane: number, tab: number): (number?, n
 	return dockedSplit(layout.root, pane, 1)
 end
 
--- Sets the split ratio exactly. resize scales the ratio by (cols + cells) / cols, where cols is the
--- pane width from the last layout pass and stays fixed for the whole call (hidden tabs included),
--- so a one-cell probe reveals cols and a fractional second resize lands on the target.
+type Probe = { r0: number, r1: number, cols: number }
+
+-- resize scales the split ratio by (cols + cells) / cols, where cols is the pane width in cells from
+-- the last layout pass and stays fixed for the whole call (hidden tabs included), so a one-cell probe
+-- reveals cols. It leaves the ratio one cell off: `settle` must then set it exactly. Nil when the
+-- divider cannot move that way: a pane at Tern's minimum width or the ratio at its 0.1-0.9 bounds.
+local function probe(cx: WindowCx, pane: number, tab: number, step: number): Probe?
+	local r0 = dockedRatio(cx, pane, tab)
+	if not r0 or not cx.layout:resize(pane, "right", step) then
+		return nil
+	end
+	local r1 = dockedRatio(cx, pane, tab)
+	if not r1 or r1 == r0 then
+		return nil
+	end
+	return { r0 = r0, r1 = r1, cols = step * r0 / (r1 - r0) }
+end
+
+-- Lands a probed split exactly on `target` with one fractional resize.
+local function settle(cx: WindowCx, pane: number, tab: number, measured: Probe, target: number): number?
+	cx.layout:resize(pane, "right", measured.cols * (target / measured.r1 - 1))
+	return dockedRatio(cx, pane, tab)
+end
+
+-- A probe toward `step`, else away from it.
+local function measure(cx: WindowCx, pane: number, tab: number, step: number): Probe?
+	return probe(cx, pane, tab, step) or probe(cx, pane, tab, -step)
+end
+
+-- Whether the divider can move both ways. Tern moves a divider that cannot by itself (it holds a
+-- pane at its minimum width while the window shrinks), so only a free divider's change is a drag.
+local function free(cx: WindowCx, pane: number, tab: number): boolean
+	for _, step in { 1, -1 } do
+		local measured = probe(cx, pane, tab, step)
+		if not measured then
+			return false
+		end
+		settle(cx, pane, tab, measured, measured.r0)
+	end
+	return true
+end
+
 local function setRatio(cx: WindowCx, pane: number, tab: number, target: number): number?
 	local r0 = dockedRatio(cx, pane, tab)
 	if not r0 or math.abs(r0 - target) <= WIDTH_EPSILON then
 		return r0
 	end
-	local step = if target > r0 then 1 else -1
-	if not cx.layout:resize(pane, "right", step) then
-		step = -step
-		if not cx.layout:resize(pane, "right", step) then
-			return r0
-		end
+	local measured = measure(cx, pane, tab, if target > r0 then 1 else -1)
+	if not measured then
+		return dockedRatio(cx, pane, tab)
 	end
-	local r1 = dockedRatio(cx, pane, tab)
-	if not r1 or r1 == r0 then
-		return r1
-	end
-	local cols = step * r0 / (r1 - r0)
-	cx.layout:resize(pane, "right", cols * (target / r1 - 1))
-	return dockedRatio(cx, pane, tab)
+	return settle(cx, pane, tab, measured, target)
 end
 
 type DockedSidebar = { pane: number, tab: number, ratio: number, share: number }
 
--- Always expanded: one width for every tab's docked sidebar. A ratio this plugin did not set is the
--- user's resize and becomes the width; every other docked sidebar, hidden tabs included, is set to
--- it at once so switching tabs never moves the column.
+-- Always expanded: one width in whole cells for every tab's docked sidebar. A ratio this plugin did
+-- not set, on a divider free to move, is the user's drag and becomes the width. Resizing the window
+-- keeps split ratios and so scales the column; the visible sidebar is measured on every refresh and
+-- sized back to the width, which Tern exposes only to the cell. Every other docked sidebar, hidden
+-- tabs included, takes the visible one's share of the tab at once, so switching tabs never moves it.
 local function lockWidths(cx: WindowCx, tab: number, pane: number, owned: { [number]: boolean })
 	call(cx, "keeping sidebar width", function()
-		if not dockedRatio(cx, pane, tab) then
-			return
-		end
 		local docked: { DockedSidebar } = {}
+		local visible: DockedSidebar? = nil
 		-- Check every sidebar, not only the visible one: a drag followed by a tab switch
 		-- within one refresh tick leaves the resize on a sidebar that is now hidden.
-		local resized: number? = nil
+		local dragged: DockedSidebar? = nil
 		for sidebarPane in owned do
 			local paneKey = key(sidebarPane)
 			local sidebarTab = if closing[paneKey] or closed[paneKey] then nil else cx.session:tab_of(sidebarPane)
 			if sidebarTab then
 				local ratio, share = dockedRatio(cx, sidebarPane, sidebarTab)
 				if ratio then
-					table.insert(docked, { pane = sidebarPane, tab = sidebarTab, ratio = ratio, share = share })
+					local entry = { pane = sidebarPane, tab = sidebarTab, ratio = ratio, share = share }
+					table.insert(docked, entry)
+					if sidebarPane == pane then
+						visible = entry
+					end
 					local seen = widthSeen[paneKey]
-					if seen and math.abs(ratio - seen) > WIDTH_EPSILON and (resized == nil or sidebarPane == pane) then
-						resized = ratio * share
+					if seen and math.abs(ratio - seen) > WIDTH_EPSILON and (dragged == nil or sidebarPane == pane) then
+						dragged = entry
 					end
 				end
 			end
 		end
-		local saved = data.getDockedWidth()
-		local target: number
-		if resized then
-			target = resized
-		elseif saved then
-			target = saved
-		else
-			local ratio, share = dockedRatio(cx, pane, tab)
-			target = (ratio :: number) * share
+		if not visible then
+			return
 		end
-		if target ~= saved then
-			data.setDockedWidth(target)
+		if dragged and not free(cx, dragged.pane, dragged.tab) then
+			dragged = nil
 		end
-		local applied: { [string]: number } = {}
+		local width = data.getDockedWidth()
+		if dragged and dragged ~= visible then
+			-- Dragged just before a tab switch: its last layout pass still holds the new width.
+			local draggedWidth = measure(cx, dragged.pane, dragged.tab, 1)
+			if draggedWidth then
+				width = math.floor(draggedWidth.cols + 0.5)
+				settle(cx, dragged.pane, dragged.tab, draggedWidth, draggedWidth.r0)
+			end
+		end
+		local measured = measure(cx, pane, tab, 1)
+		if not measured then
+			widthSeen[key(pane)] = visible.ratio
+			return
+		end
+		if dragged == visible or not width then
+			width = math.floor(measured.cols + 0.5)
+		end
+		data.setDockedWidth(width)
+		local ratio = settle(cx, pane, tab, measured, measured.r0 * width / measured.cols) or visible.ratio
+		local applied: { [string]: number } = { [key(pane)] = ratio }
 		for _, entry in docked do
-			applied[key(entry.pane)] = setRatio(cx, entry.pane, entry.tab, target / entry.share) or entry.ratio
+			if entry ~= visible then
+				applied[key(entry.pane)] = setRatio(cx, entry.pane, entry.tab, ratio * visible.share / entry.share)
+					or entry.ratio
+			end
 		end
 		widthSeen = applied
 	end)

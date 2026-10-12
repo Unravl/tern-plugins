@@ -40,8 +40,9 @@ local HOST_COLORS = "sidebar.host-title-colors.v1"
 local SESSION_ICONS = "sidebar.session-icons.v1"
 local HOST_COLLAPSED = "sidebar.host-collapsed.v1"
 local SIDEBAR_MODE = "sidebar.display-mode.v1"
--- Share of the tab width (0..1) the docked sidebar takes in Always expanded mode.
-local DOCKED_WIDTH = "sidebar.docked-width.v1"
+-- Width in whole cells of the docked sidebar in Always expanded mode: a fixed size, not a share of
+-- the window, so resizing the window does not move the column.
+local DOCKED_WIDTH = "sidebar.docked-width.v2"
 -- Array of stable host keys, first displayed first.
 local HOST_ORDER = "sidebar.host-order.v1"
 -- { [stableHostKey]: array of unique session names }, first displayed first.
@@ -373,13 +374,13 @@ local function setSidebarMode(mode: SidebarMode): ()
 end
 
 local function getDockedWidth(): number?
-	local share = tern.kv.get(DOCKED_WIDTH)
-	return if type(share) == "number" and share > 0 and share < 1 then share else nil
+	local cells = tern.kv.get(DOCKED_WIDTH)
+	return if type(cells) == "number" and cells >= 1 and cells == math.floor(cells) then cells else nil
 end
 
-local function setDockedWidth(share: number): ()
-	if share > 0 and share < 1 and getDockedWidth() ~= share then
-		tern.kv.set(DOCKED_WIDTH, share)
+local function setDockedWidth(cells: number): ()
+	if cells >= 1 and cells == math.floor(cells) and getDockedWidth() ~= cells then
+		tern.kv.set(DOCKED_WIDTH, cells)
 	end
 end
 
