@@ -11,6 +11,8 @@ export type SessionMetadata = {
 }
 export type Snapshot = {
 	hostTitles: { [string]: string },
+	-- idKey(host.id) -> lowercase "#rrggbb" title color; absent uses the theme color.
+	hostColors: { [string]: string },
 	hostCollapsed: { [string]: boolean },
 	sidebarMode: SidebarMode,
 	sessions: { [string]: SessionMetadata },
@@ -33,6 +35,8 @@ type ObservedTab = {
 }
 
 local HOST_TITLES = "sidebar.host-titles.v1"
+-- { [stableHostKey]: lowercase "#rrggbb" }
+local HOST_COLORS = "sidebar.host-title-colors.v1"
 local SESSION_ICONS = "sidebar.session-icons.v1"
 local HOST_COLLAPSED = "sidebar.host-collapsed.v1"
 local SIDEBAR_MODE = "sidebar.display-mode.v1"
@@ -85,6 +89,18 @@ end
 local function readValues(key: string): Values
 	local value = tern.kv.get(key)
 	return if type(value) == "table" then table.clone(value) else {}
+end
+
+-- Accepts "#rgb", "#rrggbb" or either without "#"; returns lowercase "#rrggbb".
+local function normalizeColor(value: any): string?
+	if type(value) ~= "string" then
+		return nil
+	end
+	local digits = string.match(value, "^%s*#?(%x+)%s*$")
+	if digits and #digits == 3 then
+		digits = string.gsub(digits, "%x", "%0%0")
+	end
+	return if digits and #digits == 6 then "#" .. string.lower(digits) else nil
 end
 
 local function validIcon(value: any): Icon?
@@ -384,10 +400,12 @@ local function snapshot(
 	preferredContent: ((tab: number) -> number?)?
 ): Snapshot
 	local titles = readValues(HOST_TITLES)
+	local colors = readValues(HOST_COLORS)
 	local icons = readValues(SESSION_ICONS)
 	local collapsed = readValues(HOST_COLLAPSED)
 	local result: Snapshot = {
 		hostTitles = {},
+		hostColors = {},
 		hostCollapsed = {},
 		sidebarMode = getSidebarMode(),
 		sessions = {},
@@ -404,6 +422,7 @@ local function snapshot(
 		stableHosts[key] = stable
 		names[key] = {}
 		result.hostTitles[key] = displayTitle(titles, host)
+		result.hostColors[key] = normalizeColor(colors[stable])
 		result.hostCollapsed[key] = collapsed[stable] == true
 	end
 	for index, host in orderHosts(hosts, titles, stringList(tern.kv.get(HOST_ORDER))) do
@@ -589,6 +608,23 @@ local function setHostTitle(host: ManagedHost, title: string?): ()
 	tern.kv.set(HOST_TITLES, titles)
 end
 
+local function setHostColor(host: ManagedHost, color: string?): ()
+	local value: string? = nil
+	if color then
+		value = normalizeColor(color)
+		if not value then
+			error("A title color must be a hex color such as #3b82f6.")
+		end
+	end
+	local colors = readValues(HOST_COLORS)
+	local stable = hostKey(host)
+	if colors[stable] == value then
+		return
+	end
+	colors[stable] = value
+	tern.kv.set(HOST_COLORS, colors)
+end
+
 local function setSessionIcon(host: ManagedHost, row: ManagedSession, rows: { ManagedSession }, icon: Icon?): ()
 	if icon and not validIcon(icon) then
 		error("Choose a native icon or a nonblank symbol of at most 64 bytes without control characters.")
@@ -757,6 +793,8 @@ end
 return {
 	snapshot = snapshot,
 	setHostTitle = setHostTitle,
+	setHostColor = setHostColor,
+	normalizeColor = normalizeColor,
 	getSidebarMode = getSidebarMode,
 	setSidebarMode = setSidebarMode,
 	getDockedWidth = getDockedWidth,

@@ -4,7 +4,7 @@ Plugins and tweaks for [Tern](https://docs.stencil.so/tern/). Each folder is one
 
 | Plugin | What it does |
 | --- | --- |
-| [`sessions-sidebar`](sessions-sidebar/README.md) | Left sidebar listing sessions per host, with icons, renaming, paths, activity strips, collapsible and reorderable hosts and sessions, a per-host new-session button, and docked, click-tab or hover display |
+| [`sessions-sidebar`](sessions-sidebar/README.md) | Left sidebar listing sessions per host, with icons, renaming, paths, activity strips, collapsible and reorderable hosts and sessions, custom host title colors, a per-host new-session button, and docked, click-tab or hover display |
 
 ## Install a plugin
 

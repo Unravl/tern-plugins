@@ -404,6 +404,32 @@ local function lockWidths(cx: WindowCx, tab: number, pane: number, owned: { [num
 	end)
 end
 
+-- Text of the "host-colors" sheet this VM installed; nil until the first refresh installs it.
+local colorSheet: string? = nil
+
+local function syncColorStyles(snapshot: data.Snapshot)
+	local seen: { [string]: boolean } = {}
+	local colors: { string } = {}
+	for _, color in snapshot.hostColors do
+		if not seen[color] then
+			seen[color] = true
+			table.insert(colors, color)
+		end
+	end
+	table.sort(colors)
+	local rules: { string } = {}
+	for _, color in colors do
+		-- Colors come from data.normalizeColor, so they are always "#" plus six hex digits.
+		table.insert(rules, '[data-role="sessions-sidebar"] [data-host-color="' .. color
+			.. '"] [data-role="sessions-sidebar-host-title"] { color: ' .. color .. "; }")
+	end
+	local sheet = table.concat(rules, "\n")
+	if sheet ~= colorSheet then
+		tern.css("host-colors", sheet)
+		colorSheet = sheet
+	end
+end
+
 local function refresh(cx: WindowCx, explicit: boolean?)
 	local focus, tab, layout = active(cx)
 	if not focus or not tab or not layout then
@@ -551,6 +577,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 		moving = nil
 	end
 	local snapshot = data.snapshot(cx, hosts, rows, preferredContent)
+	syncColorStyles(snapshot)
 	syncDisplay()
 	local model = sessions.build(hosts, rows, snapshot, display)
 	if selected then
@@ -852,6 +879,89 @@ local function sessionIcon(cx: WindowCx, target: sessions.Target, originalHost: 
 	end)
 end
 
+local TITLE_COLORS: { { label: string, value: string } } = {
+	{ label = "Red", value = "#f87171" },
+	{ label = "Orange", value = "#fb923c" },
+	{ label = "Yellow", value = "#facc15" },
+	{ label = "Green", value = "#4ade80" },
+	{ label = "Teal", value = "#2dd4bf" },
+	{ label = "Blue", value = "#60a5fa" },
+	{ label = "Purple", value = "#c084fc" },
+	{ label = "Pink", value = "#f472b6" },
+}
+
+local function customColor(cx: WindowCx, target: sessions.Target, originalHost: ManagedHost, current: string?)
+	prompt(cx, "changing host title color", {
+		value = current or "",
+		placeholder = "Hex title color, e.g. #3b82f6",
+		icon = "pen",
+		action = "save",
+	}, function(value, fresh)
+		local host = liveTarget(fresh, target, originalHost)
+		if not host or not nonblank(fresh, value, "hex color") then
+			return
+		end
+		local color = data.normalizeColor(value)
+		if not color then
+			fresh:toast("error", "Use a hex color", "Enter #rgb or #rrggbb, for example #3b82f6.")
+			return
+		end
+		call(fresh, "changing host title color", function()
+			data.setHostColor(host, color)
+		end)
+	end)
+end
+
+local function hostColor(cx: WindowCx, target: sessions.Target, originalHost: ManagedHost, current: string?)
+	local items: { PickItem } = {}
+	local preset = false
+	for _, color in TITLE_COLORS do
+		preset = preset or current == color.value
+		table.insert(items, {
+			label = color.label,
+			detail = color.value,
+			group = "Colors",
+			current = current == color.value,
+			mode = "preset",
+			value = color.value,
+		})
+	end
+	table.insert(items, {
+		label = "Custom hex color",
+		detail = if current and not preset then current else "Enter #rgb or #rrggbb",
+		icon = "pen",
+		group = "Customization",
+		current = current ~= nil and not preset,
+		mode = "custom",
+	})
+	table.insert(items, {
+		label = "Default color",
+		detail = "Use the theme's heading color",
+		icon = "undo",
+		group = "Customization",
+		current = current == nil,
+		mode = "reset",
+	})
+	pick(cx, "choosing host title color", {
+		items = items,
+		placeholder = "Choose a host title color",
+		icon = "pen",
+		action = "choose",
+	}, function(item, fresh)
+		local host = liveTarget(fresh, target, originalHost)
+		if not host then
+			return
+		end
+		if item.mode == "custom" then
+			customColor(fresh, target, host, current)
+			return
+		end
+		call(fresh, "changing host title color", function()
+			data.setHostColor(host, if item.mode == "preset" then item.value else nil)
+		end)
+	end)
+end
+
 local function sidebarSettings(cx: WindowCx)
 	if nativeInputs > 0 then
 		return
@@ -1057,6 +1167,8 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 			data.setHostTitle(host, nil)
 		end)
 		refresh(cx)
+	elseif target.kind == "host-color" then
+		hostColor(cx, target, host, snapshot.hostColors[key(host.id)])
 	elseif target.kind == "change-icon" and row then
 		local metadata = snapshot.sessions[key(row.id)]
 		sessionIcon(cx, target, host, if metadata then metadata.icon else { kind = "named", value = "terminal" })

@@ -27,7 +27,7 @@ export type ManagedSession = {
 	tabs: number,
 }
 
-type TargetKind = "switch" | "rename-session" | "change-icon" | "reset-icon" | "rename-host" | "reset-host" | "new-session" | "toggle-host" | "settings" | "toggle-panel" | "move-host" | "move-session" | "place-host" | "place-session" | "cancel-move"
+type TargetKind = "switch" | "rename-session" | "change-icon" | "reset-icon" | "rename-host" | "reset-host" | "host-color" | "new-session" | "toggle-host" | "settings" | "toggle-panel" | "move-host" | "move-session" | "place-host" | "place-session" | "cancel-move"
 
 export type Target = {
 	kind: TargetKind,
@@ -283,6 +283,8 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 		table.insert(hostMenu, addTarget(targets, "move-host", headingId, "move-host", host.id, nil))
 		table.insert(hostMenu, addTarget(targets, "rename-host-title", headingId, "rename-host", host.id, nil))
 		table.insert(hostMenu, addTarget(targets, "reset-host-title", headingId, "reset-host", host.id, nil))
+		table.insert(hostMenu, addTarget(targets, "change-title-color", headingId, "host-color", host.id, nil))
+		local color = snapshot.hostColors[group.key]
 		local heading = group.label
 		if not connected then
 			heading ..= " · " .. host.state
@@ -322,14 +324,24 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 					else { click = addTarget(targets, "toggle-host", headingId .. ".toggle", "toggle-host", host.id, nil) },
 				shrink = 0,
 			}),
-			with(ui.text(heading), {
-				key = "title",
-				role = "sessions-sidebar-host-title",
-				title = heading,
-				wrap = "none",
-				truncate = "end",
+			-- Text nodes drop `attrs`, so the title color rides on a wrapper element;
+			-- window.luau installs one CSS rule per color in use (validated "#rrggbb").
+			ui.el("div", {
+				key = "label",
+				role = "sessions-sidebar-host-label",
+				attrs = if color then { ["data-host-color"] = color } else nil,
 				grow = 1,
 				shrink = 1,
+			}, {
+				with(ui.text(heading), {
+					key = "title",
+					role = "sessions-sidebar-host-title",
+					title = heading,
+					wrap = "none",
+					truncate = "end",
+					grow = 1,
+					shrink = 1,
+				}),
 			}),
 		}
 		if connected then
@@ -353,6 +365,7 @@ local function build(hosts: { ManagedHost }, rows: { ManagedSession }, snapshot:
 
 		addSignature(signature, group.key)
 		addSignature(signature, group.label)
+		addSignature(signature, color or "")
 		addSignature(signature, host.state)
 		addSignature(signature, tostring(group.collapsed))
 		addSignature(signature, tostring(#group.rows))

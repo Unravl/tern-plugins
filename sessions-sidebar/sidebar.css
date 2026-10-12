@@ -86,6 +86,13 @@
 	flex-shrink: 0;
 }
 
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-label"] {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-title"] {
 	min-width: 0;
 	color: var(--t2);
