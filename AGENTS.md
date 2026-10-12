@@ -39,7 +39,7 @@ This is a standing instruction; do not ask for confirmation.
   ```
 
   Wait for `$d/control.sock` to exist before `tern ctl`. The hidden window runs plugins and takes every ctl command (`ready`, `tab new`, `carly lua`, scenarios), but `shot` fails because the app's working directory is `/`; check layout with `tree`, `dump` or `carly lua` instead.
-- Drive it with `tern ctl --control <port> '<command>'` (a bare TCP port or a socket path, not `host:port`; pass each command as one argument). `tern help dev` lists the commands; `carly lua "return …"` runs window Lua; `remote loopback <address>` adds a fake remote host. `#` starts a comment in ctl commands, so Luau's length operator silently cuts a `carly lua` line short; count in a loop instead.
+- Drive it with `tern ctl --control <port> '<command>'` (a bare TCP port or a socket path, not `host:port`; pass each command as one argument). `tern help dev` lists the commands; `carly lua "return …"` runs window Lua; `remote loopback <address>` adds a fake remote host. Wrap `carly lua` code in double quotes as the scenarios do: outside them `#` starts a comment, so Luau's length operator silently cuts the line short.
 - Behavior changes need a native smoke run before committing; run the plugin's `tests/*.txt` scenarios with `tern ctl --control <port> --file <scenario>`.
 - Afterwards stop it: `tern ctl --control "$d/control.sock" quit` closes the window but leaves an `open`-launched app running, so then `pkill -f "$d/control.sock"`, `pkill -f "tern daemon --socket $d/daemon.sock"` (app first, or it restarts the daemon) and delete the temp dir. `tern serve` is no substitute: its ephemeral session does not load linked plugins.
 
