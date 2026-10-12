@@ -1,6 +1,7 @@
 # Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab.
 # tern ctl --control <endpoint> --file tests/sidebar-lifecycle.txt
-# Creates two additional tabs; the last one's shell exits to check the tab closes. Never closes sessions.
+# Creates two additional tabs; the last one's shell exits to check the tab closes. Ends with the
+# palette's Reload plugins, which drops every canvas's state. Never closes sessions.
 ready
 wait 1500
 carly lua "sidebarTest = {}; function sidebarPanels(tab) local rows = {}; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then table.insert(rows, canvas.pane) end end; return rows end; function sidebarCheck(tab, content, count) assert(cx.session:tab_of(content) == tab, 'content left its tab'); assert(cx.session:focused() == content, 'sidebar stole content focus'); local rows = sidebarPanels(tab); assert(#rows == count, 'unexpected sidebar count: ' .. tostring(#rows)); for _, info in cx.session:tabs() do assert(#sidebarPanels(info.id) <= 1, 'duplicate sidebars in a tab') end; return rows[1] end; sidebarTest.content = cx.session:focused(); assert(sidebarTest.content, 'active content pane required'); local pane = cx.session:pane(sidebarTest.content); assert(pane and pane.kind == 'terminal', 'start with a focused shell pane'); sidebarTest.tab = cx.session:tab_of(sidebarTest.content); assert(sidebarTest.tab, 'active tab required'); sidebarTest.original = sidebarCheck(sidebarTest.tab, sidebarTest.content, 1); for _, session in cx.session:sessions() do if session.current then sidebarTest.session = session.id end end; assert(sidebarTest.session, 'current session required'); return 'PASS initial owned sidebar and content focus'"
@@ -94,5 +95,18 @@ carly close
 run exit
 wait 2500
 carly lua "for _, tab in cx.session:tabs() do assert(tab.id ~= sidebarTest.exitTab, 'tab stayed open holding only its sidebar: ' .. tab.title) end; return 'PASS a tab whose last shell exits closes with its sidebar'"
+carly ok
+carly close
+
+# The palette's Reload plugins drops every canvas's state, leaving blank panes titled "Canvas"
+# (a focused one names its tab "Canvas"). They are closed once stateless for 5 s, and the active
+# tab gets one working sidebar again. Refreshes are explicit: hidden windows run timers slowly.
+plugins run reload_plugins
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 6000
+plugins run plugin.sessions-sidebar.refresh
+wait 2500
+carly lua "local live = {}; for _, c in cx.canvas:list() do live[c.pane] = true end; local tab = cx.session:tab_of(cx.session:focused()); local working = 0; for _, p in cx.session:panes() do assert(p.block ~= 'tern.canvas' or live[p.pane], 'blank stateless canvas left in tab ' .. tostring(p.tab) .. ': ' .. p.title); if p.tab == tab and p.block == 'tern.canvas' then working += 1 end end; assert(working == 1, 'active tab has ' .. working .. ' sidebars'); return 'PASS Reload plugins leaves no blank Canvas panes'"
 carly ok
 carly close

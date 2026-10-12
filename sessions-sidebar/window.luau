@@ -26,8 +26,8 @@ local unavailableHosts: { [string]: string } = {}
 local nativeInputs = 0
 -- Pane key -> tern.now() when a canvas without replicated state was first seen.
 local unresolvedSince: { [string]: number } = {}
--- Replica lag resolves within moments. Tern 0.7.3's palette "Reload plugins" drops
--- existing local canvases' state for good; past this, stop waiting so the tab gets a sidebar.
+-- Replica lag resolves within moments. Tern's palette "Reload plugins" (and an app restart)
+-- drops existing canvases' state for good; past this, such a canvas is dead and gets closed.
 local UNRESOLVED_WAIT_MS = 5000
 local display: sessions.Display = { open = false, holdOpen = false, moving = nil }
 -- The item lifted for pick-and-place reordering; window-local like the rest of the drawer state.
@@ -129,7 +129,7 @@ local function remember(targets: { [string]: sessions.Target })
 	end
 end
 
-local function closeOwned(cx: WindowCx, pane: number): boolean
+local function closeCanvas(cx: WindowCx, pane: number): boolean
 	local paneKey = key(pane)
 	if closing[paneKey] or closed[paneKey] then
 		return true
@@ -217,7 +217,7 @@ local function closeLoneSidebars(cx: WindowCx, gone: number?)
 		end)
 		if read and layout and onlySidebars(layout, owned, gone) then
 			for _, pane in group.panes do
-				closeOwned(cx, pane)
+				closeCanvas(cx, pane)
 			end
 		end
 	end
@@ -277,6 +277,38 @@ local function unresolvedCanvas(cx: WindowCx, tree: TabTree, canvases: { [number
 	end
 	return (tree[1] ~= nil and unresolvedCanvas(cx, tree[1], canvases))
 		or (tree[2] ~= nil and unresolvedCanvas(cx, tree[2], canvases))
+end
+
+-- A canvas whose state Tern dropped stays as a blank pane titled "Canvas" that no plugin draws or
+-- removes, and when focused it names its tab "Canvas". Close every canvas pane, in any tab or
+-- session of this window, that has had no replicated state for UNRESOLVED_WAIT_MS. Live canvases
+-- of any owner (this plugin, other plugins, Carly) are listed and never touched.
+local function closeDeadCanvases(cx: WindowCx)
+	local listed, canvasRows = call(cx, "listing canvases", function()
+		return cx.canvas:list()
+	end)
+	local read, paneRows = call(cx, "listing panes", function()
+		return cx.session:panes()
+	end)
+	if not listed or not read then
+		return
+	end
+	local live: { [number]: boolean } = {}
+	for _, canvas in canvasRows do
+		live[canvas.pane] = true
+	end
+	local now = tern.now()
+	for _, info in paneRows do
+		local paneKey = key(info.pane)
+		if info.block == "tern.canvas" and not live[info.pane] then
+			local since = unresolvedSince[paneKey]
+			if not since then
+				unresolvedSince[paneKey] = now
+			elseif now - since >= UNRESOLVED_WAIT_MS then
+				closeCanvas(cx, info.pane)
+			end
+		end
+	end
 end
 
 local function preserveFocus(cx: WindowCx, pane: number, tab: number)
@@ -540,6 +572,7 @@ local function syncColorStyles(snapshot: data.Snapshot)
 end
 
 local function refresh(cx: WindowCx, explicit: boolean?)
+	closeDeadCanvases(cx)
 	local focus, tab, layout = active(cx)
 	if not focus or not tab or not layout then
 		if explicit then
@@ -604,7 +637,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 	if onlySidebars(layout, owned) then
 		-- The tab's last content pane closed, was parked or moved away while it was shown.
 		for _, pane in current do
-			closeOwned(cx, pane)
+			closeCanvas(cx, pane)
 		end
 		return
 	end
@@ -613,7 +646,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 		-- A successful open reserves this tab immediately, before its replica arrives.
 		if not state.observed and not canvases[state.pane] then
 			if state.hidden then
-				closeOwned(cx, state.pane)
+				closeCanvas(cx, state.pane)
 			end
 			return
 		end
@@ -633,7 +666,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 	end
 	if state.hidden then
 		for _, pane in current do
-			closeOwned(cx, pane)
+			closeCanvas(cx, pane)
 		end
 		return
 	end
@@ -660,7 +693,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 		state.observed = true
 		for _, pane in current do
 			if pane ~= selected then
-				closeOwned(cx, pane)
+				closeCanvas(cx, pane)
 			end
 		end
 	elseif waitingForClose or waitingForMetadata then
@@ -1360,6 +1393,7 @@ tern.on("pane_closed", function(ev: PaneEvent, cx: WindowCx)
 		closeLoneSidebars(cx, ev.pane)
 	end
 	closing[paneKey] = nil
+	unresolvedSince[paneKey] = nil
 	refresh(cx)
 end)
 tern.on("tab_closed", function(ev: TabEvent, cx: WindowCx)
