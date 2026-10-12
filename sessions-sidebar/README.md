@@ -18,7 +18,7 @@ From the [tern-plugins](https://github.com/Unravl/tern-plugins) repository, wher
 tern plugin install github.com/Unravl/tern-plugins/sessions-sidebar
 ```
 
-`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.6.0 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
+`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.6.1 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
 
 To develop, use the folder in place instead: `tern plugin link ~/Documents/tern-plugins/sessions-sidebar`. After editing, reload with **`tern plugin reload`** from a terminal (see [Known limits](#known-limits) for why not the palette's *Reload plugins*).
 
@@ -49,6 +49,8 @@ Row icons sit **5 px from the drawer content's left edge**, with no grips on ses
 - **Paths:** the line under each name is the session's working directory. Paths in your home directory show as `~/…` (`/Users/<you>/…` locally, `/home/<you>/…` on Linux hosts). Long paths drop leading folders (`…/project/src`); hover a path for the full text.
 
 Other palette commands: **Show sessions sidebar**, **Hide sessions sidebar (current tab)**, **Refresh sessions sidebar**. There are no default shortcuts; bind `plugin.sessions-sidebar.show`, `.hide`, `.refresh` or `.settings` in your Tern keybindings if you want them. Hide (or closing the sidebar pane) keeps that tab's sidebar hidden until Show, a plugin reload or a new window.
+
+The sidebar never keeps a tab open on its own. When a tab's last other pane closes (for example its shell exits), is parked or moves away, the sidebar closes too and Tern closes the tab, so no tab is left titled **Sessions Sidebar [ss-…]**. Loading the plugin also closes any such leftover tabs.
 
 ## Activity strips
 
@@ -111,7 +113,9 @@ For **1.5.2**, isolated native **Tern 0.8.2** checks on Windows covered a non-de
 
 For **1.6.0**, isolated native **Tern 0.8.2** checks exercised agent markers with stand-in omp agents (TSP recordings played with `surface-play`) across tabs and sessions, and with one real `omp` turn of about a second, whose **✓** came from Tern's unseen alert. `tests/agent-markers.txt` passed in Hover left edge and Always expanded modes, the markers sat left of the strip without moving it from the right edge, long names still truncated, and `tests/sidebar-lifecycle.txt` passed afterwards.
 
-The native regression scenarios are `tests/sidebar-lifecycle.txt` (row click keeps terminal focus, parked replacement, Hide, manual close, Show, tab switching) and `tests/agent-markers.txt` (**?** and **✓** for agents in tabs you are not looking at, none in the active tab, cleared by visiting the tab and not brought back by leaving, markers on another session's row, both markers on one row). The lifecycle scenario is verified in **Hover left edge** and **Always expanded** modes; Click tab mode is not supported because its row click needs the drawer open. The agent scenario works in any mode. Run them from this folder in a **fresh isolated window**, never your normal sessions. The window below starts hidden in the background, so it does not take focus:
+For **1.6.1**, isolated native **Tern 0.8.2** checks reproduced the leftover tab (after `exit` in a tab's only shell, 1.6.0 kept the tab open titled **Sessions Sidebar [ss-…]**) and confirmed that the tab now closes. The same holds when the last pane of a background tab closes and when the last pane is parked, and a leftover tab from 1.6.0 closed when the plugin reloaded. The new exit step in `tests/sidebar-lifecycle.txt` fails on 1.6.0 and passes on 1.6.1; `tests/agent-markers.txt` passed too.
+
+The native regression scenarios are `tests/sidebar-lifecycle.txt` (row click keeps terminal focus, parked replacement, Hide, manual close, Show, tab switching, a tab whose shell exits closes) and `tests/agent-markers.txt` (**?** and **✓** for agents in tabs you are not looking at, none in the active tab, cleared by visiting the tab and not brought back by leaving, markers on another session's row, both markers on one row). The lifecycle scenario is verified in **Hover left edge** and **Always expanded** modes; Click tab mode is not supported because its row click needs the drawer open. The agent scenario works in any mode. Run them from this folder in a **fresh isolated window**, never your normal sessions. The window below starts hidden in the background, so it does not take focus:
 
 ```sh
 test_dir="$(mktemp -d /tmp/tern-sidebar-test.XXXXXX)"
@@ -125,7 +129,7 @@ tern ctl --control "$test_dir/control.sock" --file tests/sidebar-lifecycle.txt
 tern ctl --control "$test_dir/control.sock" --file tests/agent-markers.txt
 ```
 
-The `state.json` line stops a fresh config from offering to install omp (and linking it into `~/bin`). The lifecycle scenario creates one extra tab; the agent scenario writes two recordings to `/tmp/sessions-sidebar-agent-*.jsonl` and opens three tabs and one extra session. Neither closes content panes or sessions. Afterwards run `tern ctl --control "$test_dir/control.sock" quit`, then `pkill -f "$test_dir/control.sock"` and `pkill -f "tern daemon --socket $test_dir/daemon.sock"`, and delete `$test_dir`. Tern's [script reference](https://docs.stencil.so/tern/scripts/) documents `ctl`.
+The `state.json` line stops a fresh config from offering to install omp (and linking it into `~/bin`). The lifecycle scenario creates two extra tabs and exits the last one's shell; the agent scenario writes two recordings to `/tmp/sessions-sidebar-agent-*.jsonl` and opens three tabs and one extra session without closing any pane. Neither closes sessions. Afterwards run `tern ctl --control "$test_dir/control.sock" quit`, then `pkill -f "$test_dir/control.sock"` and `pkill -f "tern daemon --socket $test_dir/daemon.sock"`, and delete `$test_dir`. Tern's [script reference](https://docs.stencil.so/tern/scripts/) documents `ctl`.
 
 Optional SDK types and static analysis, with `luau-lsp` installed separately:
 

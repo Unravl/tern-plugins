@@ -164,6 +164,65 @@ local function inLayout(layout: TabLayout, pane: number): boolean
 	return false
 end
 
+-- Whether a tab holds nothing but this plugin's sidebars (its last content pane closed, was
+-- parked or moved away). `gone` is a pane whose close is being reported and may still be listed.
+local function onlySidebars(layout: TabLayout, owned: { [number]: boolean }, gone: number?): boolean
+	local function content(pane: number): boolean
+		return pane ~= gone and not owned[pane] and not closed[key(pane)]
+	end
+	local function any(tree: TabTree): boolean
+		if tree.pane then
+			return content(tree.pane)
+		end
+		return (tree[1] ~= nil and any(tree[1])) or (tree[2] ~= nil and any(tree[2]))
+	end
+	if any(layout.root) then
+		return false
+	end
+	for _, float in layout.floats do
+		if content(float.pane) then
+			return false
+		end
+	end
+	return true
+end
+
+-- Tern closes a tab once its last pane closes, so a sidebar left alone must not keep the tab
+-- open (it would show as a tab titled "Sessions Sidebar [ss-…]"). Covers background tabs.
+local function closeLoneSidebars(cx: WindowCx, gone: number?)
+	local listed, canvasRows = call(cx, "listing canvases", function()
+		return cx.canvas:list()
+	end)
+	if not listed then
+		return
+	end
+	local owned: { [number]: boolean } = {}
+	local byTab: { [string]: { tab: number, panes: { number } } } = {}
+	for _, canvas in canvasRows do
+		if canvas.owner == tern.plugin.id and not closed[key(canvas.pane)] then
+			owned[canvas.pane] = true
+			local found, tab = call(cx, "locating sidebar panes", function()
+				return cx.session:tab_of(canvas.pane)
+			end)
+			if found and tab then
+				local group = byTab[key(tab)] or { tab = tab, panes = {} }
+				byTab[key(tab)] = group
+				table.insert(group.panes, canvas.pane)
+			end
+		end
+	end
+	for _, group in byTab do
+		local read, layout = call(cx, "reading sidebar tab layout", function()
+			return cx.session:layout(group.tab)
+		end)
+		if read and layout and onlySidebars(layout, owned, gone) then
+			for _, pane in group.panes do
+				closeOwned(cx, pane)
+			end
+		end
+	end
+end
+
 -- Use the split tree's horizontal order; PaneInfo deliberately has no geometry.
 local function leftmost(tree: TabTree, owned: { [number]: boolean }, x: number, width: number): (number?, number)
 	if tree.pane then
@@ -541,6 +600,13 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 				end
 			end
 		end
+	end
+	if onlySidebars(layout, owned) then
+		-- The tab's last content pane closed, was parked or moved away while it was shown.
+		for _, pane in current do
+			closeOwned(cx, pane)
+		end
+		return
 	end
 	if state.pane and not closed[key(state.pane)] then
 		owned[state.pane] = true
@@ -1256,6 +1322,7 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 end)
 
 tern.on("window_start", function(cx: WindowCx)
+	closeLoneSidebars(cx)
 	refresh(cx)
 end)
 tern.on("focus", function(_ev: FocusEvent, cx: WindowCx)
@@ -1288,6 +1355,9 @@ tern.on("pane_closed", function(ev: PaneEvent, cx: WindowCx)
 			end
 			state.hidden = true
 		end
+	else
+		-- A content pane closed, possibly the last one of a background tab.
+		closeLoneSidebars(cx, ev.pane)
 	end
 	closing[paneKey] = nil
 	refresh(cx)
@@ -1317,6 +1387,8 @@ schedule()
 -- Existing plugins do not receive window_start again on reload. Never retain the load-time cx.
 tern.timer(0, function(cx: WindowCx?)
 	if cx then
+		-- Also clears tabs left holding only a sidebar before this version.
+		closeLoneSidebars(cx)
 		refresh(cx)
 	end
 end)
