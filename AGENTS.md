@@ -30,7 +30,7 @@ This is a standing instruction; do not ask for confirmation.
 ## Testing
 
 - Never drive, inspect or close Hayden's own Tern windows or sessions.
-- Isolated instance: make a temp dir `$d`, export `TERN_CONFIG_DIR`, `TERN_DAEMON_SOCKET` and `STENCIL_LOG_DIR` into it and `tern plugin link` the plugin there.
+- Isolated instance: make a temp dir `$d`, export `TERN_CONFIG_DIR`, `TERN_DAEMON_SOCKET` and `STENCIL_LOG_DIR` into it and `tern plugin link` the plugin there. Before launching, write `$TERN_CONFIG_DIR/omp/state.json` as `{"managed":false,"checked":0,"no_build":false,"offered":true}`: a fresh config otherwise offers to install omp, and accepting it links a temp-dir omp into `~/bin`.
 - Start it **hidden in the background** so it never takes focus or covers Hayden's work (never run `tern --control …` directly; that opens a frontmost window):
 
   ```sh
