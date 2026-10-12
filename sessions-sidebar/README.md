@@ -18,7 +18,7 @@ From the [tern-plugins](https://github.com/Unravl/tern-plugins) repository, wher
 tern plugin install github.com/Unravl/tern-plugins/sessions-sidebar
 ```
 
-`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.5.1 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
+`install` copies the plugin into Tern's plugins folder (`tern plugin dir`) and reloads plugins; the sidebar appears in each tab you open or visit. `tern plugin list` should show `sessions-sidebar 1.5.2 … ready`. To update, run the same command with `--force`; to uninstall, `tern plugin remove sessions-sidebar`.
 
 To develop, use the folder in place instead: `tern plugin link ~/Documents/tern-plugins/sessions-sidebar`. After editing, reload with **`tern plugin reload`** from a terminal (see [Known limits](#known-limits) for why not the palette's *Reload plugins*).
 
@@ -92,6 +92,8 @@ For **1.4.2**, isolated native **Tern 0.8.0** checks exercised the 5 px icon con
 For **1.5.0**, isolated native **Tern 0.8.2** checks exercised **Change title color** on the local host and a loopback remote host: preset colors, a custom `#A5F` normalized to `#aa55ff`, rejection of an invalid hex with a toast and no change, **Default color** removing the color, colors kept across `tern plugin reload`, and long colored titles still truncating in hover and Always expanded modes. `tests/sidebar-lifecycle.txt` passed afterwards.
 
 For **1.5.1**, isolated native **Tern 0.8.2** checks resized the window between 700 and 1600 px wide in Always expanded mode: the column stayed within one cell (193–202 px; it went 162–276 px before), a divider drag was adopted as the new width, shrinking to 700 px and growing back did not change the saved width, switching tabs kept it identical, idle refreshes left terminal sizes unchanged, and at 2400 px Tern's 10% minimum set it to 213 px. `tests/sidebar-lifecycle.txt` passed afterwards.
+
+For **1.5.2**, isolated native **Tern 0.8.2** checks on Windows covered a non-default `font_size`. Tern scales the drawer canvas by `font_size` over its default (15 against 13 makes the 320 px drawer 369 px), while the floating frame stayed 320 px and clipped the settings gear, the per-host **+** and the activity strips in hover and click-tab modes. The frame now scales by the same factor: 370 px at `font_size` 15 with all three visible, and still 320 px at the default size. `tests/sidebar-lifecycle.txt` passed at `font_size` 15.
 
 The native lifecycle regression scenario is `tests/sidebar-lifecycle.txt` (row click keeps terminal focus, parked replacement, Hide, manual close, Show, tab switching). It is verified in **Hover left edge** and **Always expanded** modes; Click tab mode is not supported by the script because its row click needs the drawer open. Run it in a **fresh isolated window**, never your normal sessions:
 
