@@ -30,10 +30,18 @@ This is a standing instruction; do not ask for confirmation.
 ## Testing
 
 - Never drive, inspect or close Hayden's own Tern windows or sessions.
-- Isolated instance: make a temp dir, export `TERN_CONFIG_DIR`, `TERN_DAEMON_SOCKET` and `STENCIL_LOG_DIR` into it, `tern plugin link` the plugin there, then start `tern --control <port> <dir>`.
-- Drive it with `tern ctl --control <port> '<command>'` (a bare TCP port or a socket path, not `host:port`; pass each command as one argument). `tern help dev` lists the commands; `carly lua "return …"` runs window Lua; `remote loopback <address>` adds a fake remote host.
+- Isolated instance: make a temp dir `$d`, export `TERN_CONFIG_DIR`, `TERN_DAEMON_SOCKET` and `STENCIL_LOG_DIR` into it and `tern plugin link` the plugin there.
+- Start it **hidden in the background** so it never takes focus or covers Hayden's work (never run `tern --control …` directly; that opens a frontmost window):
+
+  ```sh
+  open -g -j -n --env TERN_CONFIG_DIR="$d/config" --env TERN_DAEMON_SOCKET="$d/daemon.sock" \
+    --env STENCIL_LOG_DIR="$d/logs" -a /Applications/Tern.app --args --control "$d/control.sock" /tmp
+  ```
+
+  Wait for `$d/control.sock` to exist before `tern ctl`. The hidden window runs plugins and takes every ctl command (`ready`, `tab new`, `carly lua`, scenarios), but `shot` fails because the app's working directory is `/`; check layout with `tree`, `dump` or `carly lua` instead.
+- Drive it with `tern ctl --control <port> '<command>'` (a bare TCP port or a socket path, not `host:port`; pass each command as one argument). `tern help dev` lists the commands; `carly lua "return …"` runs window Lua; `remote loopback <address>` adds a fake remote host. `#` starts a comment in ctl commands, so Luau's length operator silently cuts a `carly lua` line short; count in a loop instead.
 - Behavior changes need a native smoke run before committing; run the plugin's `tests/*.txt` scenarios with `tern ctl --control <port> --file <scenario>`.
-- Afterwards stop the test window and its daemon and delete the temp dir.
+- Afterwards stop it: `tern ctl --control "$d/control.sock" quit` closes the window but leaves an `open`-launched app running, so then `pkill -f "$d/control.sock"`, `pkill -f "tern daemon --socket $d/daemon.sock"` (app first, or it restarts the daemon) and delete the temp dir. `tern serve` is no substitute: its ephemeral session does not load linked plugins.
 
 ## Sharing a plugin
 
