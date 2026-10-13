@@ -1,0 +1,6 @@
+id = "spine-composer-fix"
+name = "Spine Composer Fix"
+description = "Keeps the omp composer bar one even band across the pane in the Spine chat style when macOS Reduce transparency is on."
+window = "window.luau"
+schema = 1
+version = "1.0.0"

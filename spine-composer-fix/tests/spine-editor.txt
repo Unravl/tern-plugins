@@ -1,0 +1,18 @@
+# Run in a fresh isolated native window with spine-composer-fix linked, on a Mac with
+# System Settings > Accessibility > Display > Reduce transparency turned on (Tern's
+# `prefers-reduced-transparency: reduce` follows it). Needs `omp` on PATH. From the plugin folder:
+#   tern ctl --control <endpoint> --file tests/spine-editor.txt
+# It starts omp in the focused pane and switches the chat style to Spine. `--file` cuts replies
+# short, so check the result with one command afterwards:
+#   tern ctl --control <endpoint> dump ".sf-dock .sf-col[data-role^='omp.editor']"
+# Pass: the visible editor's "backgroundColor" is "rgba(0, 0, 0, 0)", so the dock band is one even
+# color across the pane. Without the plugin it is opaque (e.g. "rgb(35, 35, 39)" in dark themes).
+# Switching to Reader (palette "Chat style: Reader", Enter) must still show that opaque card fill.
+# Leaves the chat style on Spine and omp running in the focused pane.
+ready
+run omp
+wait 6000
+palette "Chat style: Spine"
+wait 400
+key Enter
+wait 1000
