@@ -56,6 +56,18 @@ wait 800
 carly lua "return widthCheck(cx, 'tab switch', widthTest.dragged)"
 carly ok
 carly close
+# A drag followed by a tab switch before any refresh still becomes the width, though the sidebar
+# it was made on is out of view by the time the plugin looks. -4.63 cells lands between cells too.
+carly lua "local r0, pane, tab = widthVisible(cx); assert(cx.layout:resize(pane, 'right', -4.63), 'the divider did not move'); local dragged = widthVisible(cx); assert(dragged < r0 - 0.01, string.format('the drag did not narrow the sidebar: %.6f', dragged)); local session; for _, t in cx.session:tabs() do if t.id == tab then session = t.session end end; local other; for _, t in cx.session:tabs() do if t.id ~= tab and t.session == session and not cx.canvas:get(t.pane) then other = t end end; assert(other, 'no other tab to switch to'); cx.layout:focus(other.pane); widthTest.dragged = dragged; widthTest.dragTab = tab; return string.format('PASS dragged to %.6f, then switched tabs', dragged)"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "assert(cx.session:tab_of(cx.session:focused()) ~= widthTest.dragTab, 'the tab did not switch'); return widthCheck(cx, 'drag then tab switch', widthTest.dragged)"
+carly ok
+carly close
 
 session new WidthTwo
 wait 1500
