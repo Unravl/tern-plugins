@@ -18,6 +18,10 @@ export type Snapshot = {
 	-- idKey(session.id) -> 1..n final display order within its host.
 	sessionRank: { [string]: number },
 }
+-- The docked sidebar's width in Always expanded mode: `cols` whole cells at terminal font size
+-- `font`, which is what a window resize keeps, and `fraction`, its share of the tab width when
+-- saved, which a new window starts from.
+export type DockedWidth = { cols: number, font: number?, fraction: number? }
 
 type Values = { [string]: any }
 type NameCounts = { [string]: number }
@@ -34,9 +38,9 @@ local HOST_COLORS = "sidebar.host-title-colors.v1"
 local SESSION_ICONS = "sidebar.session-icons.v1"
 local HOST_COLLAPSED = "sidebar.host-collapsed.v1"
 local SIDEBAR_MODE = "sidebar.display-mode.v1"
--- Width in whole cells of the docked sidebar in Always expanded mode: a fixed size, not a share of
--- the window, so resizing the window does not move the column.
-local DOCKED_WIDTH = "sidebar.docked-width.v2"
+local DOCKED_WIDTH = "sidebar.docked-width.v3"
+-- 1.7 saved the width in whole cells only.
+local DOCKED_CELLS = "sidebar.docked-width.v2"
 -- Array of stable host keys, first displayed first.
 local HOST_ORDER = "sidebar.host-order.v1"
 -- { [stableHostKey]: array of unique session names }, first displayed first.
@@ -367,15 +371,29 @@ local function setSidebarMode(mode: SidebarMode): ()
 	end
 end
 
-local function getDockedWidth(): number?
-	local cells = tern.kv.get(DOCKED_WIDTH)
-	return if type(cells) == "number" and cells >= 1 and cells == math.floor(cells) then cells else nil
+local function wholeCells(value: any): number?
+	return if type(value) == "number" and value >= 1 and value == math.floor(value) then value else nil
 end
 
-local function setDockedWidth(cells: number): ()
-	if cells >= 1 and cells == math.floor(cells) and getDockedWidth() ~= cells then
-		tern.kv.set(DOCKED_WIDTH, cells)
+local function getDockedWidth(): DockedWidth?
+	local saved = tern.kv.get(DOCKED_WIDTH)
+	if type(saved) == "table" and wholeCells(saved.cols) then
+		local font, fraction = saved.font, saved.fraction
+		return {
+			cols = saved.cols,
+			font = if type(font) == "number" and font > 0 then font else nil,
+			fraction = if type(fraction) == "number" and fraction > 0 and fraction < 1 then fraction else nil,
+		}
 	end
+	local cols = wholeCells(tern.kv.get(DOCKED_CELLS))
+	return if cols then { cols = cols } else nil
+end
+
+local function setDockedWidth(width: DockedWidth): ()
+	if not wholeCells(width.cols) then
+		return
+	end
+	tern.kv.set(DOCKED_WIDTH, { cols = width.cols, font = width.font, fraction = width.fraction })
 end
 
 local function setHostCollapsed(host: ManagedHost, collapsed: boolean): ()

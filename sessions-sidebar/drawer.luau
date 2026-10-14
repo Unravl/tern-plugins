@@ -265,15 +265,8 @@ local function sync(cx: WindowCx, pane: number, content: number, mode: SidebarMo
 		return false, "Sidebar transport needs a non-sidebar tiled pane in the active tab"
 	end
 	if mode == "always" then
-		local docked, why = cx.layout:dock(pane, target, "left", { focus = false })
-		if docked then
-			-- Docking restores a default split; size it like a freshly placed sidebar.
-			-- This runs only on the float-to-dock transition, never against later user resizes.
-			if cx.layout:resize(pane, "right", -10000) then
-				cx.layout:resize(pane, "right", 34)
-			end
-		end
-		return docked, why
+		-- Docking restores Tern's default split; the window controller sizes it in the same call.
+		return cx.layout:dock(pane, target, "left", { focus = false })
 	end
 	return cx.layout:float(pane, target, "tl", { focus = false })
 end

@@ -1,0 +1,119 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab.
+# tern ctl --control <endpoint> --file tests/docked-width.txt
+# Switches the sidebar to Always expanded and widens it as a drag would, then opens a tab, a second
+# session and a loopback remote host with 200 ms latency, evens out splits and changes the font size.
+# Every docked sidebar, in every tab, session and host, must keep exactly the dragged width.
+# Refreshes are explicit: hidden windows run timers slowly. Never closes sessions.
+ready
+resize 1280 800
+new-blocks shell
+wait 500
+plugins run plugin.sessions-sidebar.settings
+wait 700
+# The first row is Always expanded.
+click ".tn-pk-item"
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+# Helpers take each call's cx and the expected ratio. Within one call, Carly's Lua reads a global
+# table's field as it was when the call began, so values pass only from one call to the next.
+carly lua "widthTest = {}; function widthDocked(cx) local rows = {}; for _, c in cx.canvas:list() do if c.owner == 'sessions-sidebar' then local tab = cx.session:tab_of(c.pane); local l = tab and cx.session:layout(tab); if l and not l.zoomed and l.root[1] and l.root[1].pane == c.pane then table.insert(rows, l.root.ratio) end end end; return rows end; function widthVisible(cx) local tab = cx.session:tab_of(cx.session:focused()); local l = cx.session:layout(tab); assert(l and l.root[1] and l.root[1].pane and cx.canvas:get(l.root[1].pane), 'the visible tab has no docked sidebar at its left'); return l.root.ratio, l.root[1].pane, tab end; function widthCheck(cx, label, expected) local rows = widthDocked(cx); assert(#rows >= 1, label .. ': no docked sidebar'); for _, r in rows do assert(math.abs(r - expected) < 1e-4, string.format('%s: a sidebar is at %.6f of its tab, dragged to %.6f', label, r, expected)) end; return string.format('PASS %s: %d sidebars at %.6f', label, #rows, expected) end; local r = widthVisible(cx); widthTest.dragged = r; return string.format('PASS sidebar docked at %.6f of the tab', r)"
+carly ok
+carly close
+carly lua "return widthCheck(cx, 'setup', widthTest.dragged)"
+carly ok
+carly close
+
+# A drag is kept exactly where it ends (1.7 rounded it to whole cells, moving the column).
+# Hidden test windows write a pointer drag of a divider into the layout late, so the drag is a
+# resize from Carly: to the plugin both are a ratio it did not set on the sidebar in view. 7.37
+# cells lands between whole cells.
+carly lua "local r0, pane, tab = widthVisible(cx); assert(cx.layout:resize(pane, 'right', 7.37), 'the divider did not move'); local dragged = widthVisible(cx); assert(dragged > r0 + 0.01, string.format('the drag did not widen the sidebar: %.6f', dragged)); widthTest.dragged = dragged; return string.format('PASS dragged to %.6f', dragged)"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'after the drag', widthTest.dragged)"
+carly ok
+carly close
+
+tab new
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'new tab', widthTest.dragged)"
+carly ok
+carly close
+# Switch between two shells this scenario opened: an earlier scenario's tab may never settle.
+tab new
+wait 1500
+tab prev
+wait 800
+carly lua "return widthCheck(cx, 'tab switch', widthTest.dragged)"
+carly ok
+carly close
+
+session new WidthTwo
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'new session', widthTest.dragged)"
+carly ok
+carly close
+
+# 1.7 measured a remote tab's new sidebar from stale cells and swung every sidebar (up to 90% of
+# the window) for seconds after opening a tab on a slow remote host.
+remote loopback widthbox
+wait 1500
+remote rtt widthbox 200
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'remote host', widthTest.dragged)"
+carly ok
+carly close
+tab new
+wait 800
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'new tab on a slow remote host', widthTest.dragged)"
+carly ok
+carly close
+
+# Even out splits (as its key does) evens the content; the sidebar keeps its width.
+split right
+wait 800
+plugins run equalize
+wait 500
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'even out splits', widthTest.dragged)"
+carly ok
+carly close
+
+# A font size change keeps the column's width in pixels: the split ratio stays.
+plugins run increase_font_size
+wait 500
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'font size change', widthTest.dragged)"
+carly ok
+carly close
+plugins run reset_font_size
+wait 500
+plugins run plugin.sessions-sidebar.refresh
+wait 400
+carly lua "return widthCheck(cx, 'docked width', widthTest.dragged)"
+carly ok
+carly close

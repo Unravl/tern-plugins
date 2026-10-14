@@ -1,5 +1,6 @@
 --!strict
 local agents = require("./agents")
+local docked = require("./docked")
 local sessions = require("./sessions")
 local data = require("./session-data")
 local drawer = require("./drawer")
@@ -32,10 +33,6 @@ local UNRESOLVED_WAIT_MS = 5000
 local display: sessions.Display = { open = false, holdOpen = false, moving = nil }
 -- The item lifted for pick-and-place reordering; window-local like the rest of the drawer state.
 local moving: sessions.Moving? = nil
--- Pane key -> docked split ratio last observed or applied. A visible change is the user's drag.
-local widthSeen: { [string]: number } = {}
--- Ratios are 32-bit floats; this is ~0.1px on a 1280px window and far below one cell.
-local WIDTH_EPSILON = 1e-4
 
 local function key(id: number): string
 	return string.format("%.0f", id)
@@ -340,20 +337,13 @@ local function place(cx: WindowCx, state: Sidebar, pane: number, layout: TabLayo
 	if not target then
 		return
 	end
-	-- Only initialization changes size/position. Never fight a later user drag or resize.
+	-- Only initialization moves the sidebar. Its width is the docked width, set in the same refresh.
 	state.place = false
 	local ok, moved = call(cx, "placing sidebar on the left", function()
 		return cx.layout:move(pane, target, "left", { focus = false })
 	end)
 	if ok and moved then
-		local shrunk = call(cx, "narrowing sidebar", function()
-			return cx.layout:resize(pane, "right", -10000)
-		end)
-		if shrunk then
-			call(cx, "sizing sidebar", function()
-				return cx.layout:resize(pane, "right", 34)
-			end)
-		end
+		docked.placed(pane)
 	elseif ok then
 		report(cx, "placing sidebar on the left", "The native layout refused the move; the sidebar was left in its original split.")
 	end
@@ -375,6 +365,12 @@ local function syncDrawer(
 	end
 	if mode == "always" then
 		place(cx, state, pane, layout, owned, content)
+		for _, float in layout.floats do
+			if float.pane == pane then
+				-- drawer.sync docks it below, into Tern's default split.
+				docked.placed(pane)
+			end
+		end
 	end
 	local operation = "updating sidebar display " .. key(pane)
 	local ok, synced, message = pcall(drawer.sync, cx, pane, content, mode)
@@ -390,158 +386,21 @@ local function syncDrawer(
 	end
 end
 
--- The left sidebar's split ratio and the share of the tab width its split spans; nil when it
--- does not own a left divider (floating, stacked in a vertical split, or moved to the right).
-local function dockedSplit(tree: TabTree, pane: number, outer: number): (number?, number)
-	local first, second = tree[1], tree[2]
-	if tree.pane or not first or not second then
-		return nil, outer
-	end
-	local ratio = tree.ratio or 0.5
-	if tree.split == "down" then
-		local found, share = dockedSplit(first, pane, outer)
-		if found then
-			return found, share
-		end
-		return dockedSplit(second, pane, outer)
-	end
-	if first.pane == pane then
-		return ratio, outer
-	end
-	local found, share = dockedSplit(first, pane, outer * ratio)
-	if found then
-		return found, share
-	end
-	return dockedSplit(second, pane, outer * (1 - ratio))
-end
-
-local function dockedRatio(cx: WindowCx, pane: number, tab: number): (number?, number)
-	local layout = cx.session:layout(tab)
-	if not layout or layout.zoomed then
-		return nil, 1
-	end
-	return dockedSplit(layout.root, pane, 1)
-end
-
-type Probe = { r0: number, r1: number, cols: number }
-
--- resize scales the split ratio by (cols + cells) / cols, where cols is the pane width in cells from
--- the last layout pass and stays fixed for the whole call (hidden tabs included), so a one-cell probe
--- reveals cols. It leaves the ratio one cell off: `settle` must then set it exactly. Nil when the
--- divider cannot move that way: a pane at Tern's minimum width or the ratio at its 0.1-0.9 bounds.
-local function probe(cx: WindowCx, pane: number, tab: number, step: number): Probe?
-	local r0 = dockedRatio(cx, pane, tab)
-	if not r0 or not cx.layout:resize(pane, "right", step) then
-		return nil
-	end
-	local r1 = dockedRatio(cx, pane, tab)
-	if not r1 or r1 == r0 then
-		return nil
-	end
-	return { r0 = r0, r1 = r1, cols = step * r0 / (r1 - r0) }
-end
-
--- Lands a probed split exactly on `target` with one fractional resize.
-local function settle(cx: WindowCx, pane: number, tab: number, measured: Probe, target: number): number?
-	cx.layout:resize(pane, "right", measured.cols * (target / measured.r1 - 1))
-	return dockedRatio(cx, pane, tab)
-end
-
--- A probe toward `step`, else away from it.
-local function measure(cx: WindowCx, pane: number, tab: number, step: number): Probe?
-	return probe(cx, pane, tab, step) or probe(cx, pane, tab, -step)
-end
-
--- Whether the divider can move both ways. Tern moves a divider that cannot by itself (it holds a
--- pane at its minimum width while the window shrinks), so only a free divider's change is a drag.
-local function free(cx: WindowCx, pane: number, tab: number): boolean
-	for _, step in { 1, -1 } do
-		local measured = probe(cx, pane, tab, step)
-		if not measured then
-			return false
-		end
-		settle(cx, pane, tab, measured, measured.r0)
-	end
-	return true
-end
-
-local function setRatio(cx: WindowCx, pane: number, tab: number, target: number): number?
-	local r0 = dockedRatio(cx, pane, tab)
-	if not r0 or math.abs(r0 - target) <= WIDTH_EPSILON then
-		return r0
-	end
-	local measured = measure(cx, pane, tab, if target > r0 then 1 else -1)
-	if not measured then
-		return dockedRatio(cx, pane, tab)
-	end
-	return settle(cx, pane, tab, measured, target)
-end
-
-type DockedSidebar = { pane: number, tab: number, ratio: number, share: number }
-
--- Always expanded: one width in whole cells for every tab's docked sidebar. A ratio this plugin did
--- not set, on a divider free to move, is the user's drag and becomes the width. Resizing the window
--- keeps split ratios and so scales the column; the visible sidebar is measured on every refresh and
--- sized back to the width, which Tern exposes only to the cell. Every other docked sidebar, hidden
--- tabs included, takes the visible one's share of the tab at once, so switching tabs never moves it.
-local function lockWidths(cx: WindowCx, tab: number, pane: number, owned: { [number]: boolean })
+-- Always expanded: every docked sidebar this plugin owns, in any tab, session or host of the
+-- window, gets the one docked width (see docked.luau). `pane` is the sidebar in the active tab.
+local function lockWidths(cx: WindowCx, pane: number, owned: { [number]: boolean })
 	call(cx, "keeping sidebar width", function()
-		local docked: { DockedSidebar } = {}
-		local visible: DockedSidebar? = nil
-		-- Check every sidebar, not only the visible one: a drag followed by a tab switch
-		-- within one refresh tick leaves the resize on a sidebar that is now hidden.
-		local dragged: DockedSidebar? = nil
+		local list: { docked.Sidebar } = {}
 		for sidebarPane in owned do
 			local paneKey = key(sidebarPane)
-			local sidebarTab = if closing[paneKey] or closed[paneKey] then nil else cx.session:tab_of(sidebarPane)
-			if sidebarTab then
-				local ratio, share = dockedRatio(cx, sidebarPane, sidebarTab)
-				if ratio then
-					local entry = { pane = sidebarPane, tab = sidebarTab, ratio = ratio, share = share }
-					table.insert(docked, entry)
-					if sidebarPane == pane then
-						visible = entry
-					end
-					local seen = widthSeen[paneKey]
-					if seen and math.abs(ratio - seen) > WIDTH_EPSILON and (dragged == nil or sidebarPane == pane) then
-						dragged = entry
-					end
+			if not closing[paneKey] and not closed[paneKey] then
+				local sidebarTab = cx.session:tab_of(sidebarPane)
+				if sidebarTab then
+					table.insert(list, { pane = sidebarPane, tab = sidebarTab })
 				end
 			end
 		end
-		if not visible then
-			return
-		end
-		if dragged and not free(cx, dragged.pane, dragged.tab) then
-			dragged = nil
-		end
-		local width = data.getDockedWidth()
-		if dragged and dragged ~= visible then
-			-- Dragged just before a tab switch: its last layout pass still holds the new width.
-			local draggedWidth = measure(cx, dragged.pane, dragged.tab, 1)
-			if draggedWidth then
-				width = math.floor(draggedWidth.cols + 0.5)
-				settle(cx, dragged.pane, dragged.tab, draggedWidth, draggedWidth.r0)
-			end
-		end
-		local measured = measure(cx, pane, tab, 1)
-		if not measured then
-			widthSeen[key(pane)] = visible.ratio
-			return
-		end
-		if dragged == visible or not width then
-			width = math.floor(measured.cols + 0.5)
-		end
-		data.setDockedWidth(width)
-		local ratio = settle(cx, pane, tab, measured, measured.r0 * width / measured.cols) or visible.ratio
-		local applied: { [string]: number } = { [key(pane)] = ratio }
-		for _, entry in docked do
-			if entry ~= visible then
-				applied[key(entry.pane)] = setRatio(cx, entry.pane, entry.tab, ratio * visible.share / entry.share)
-					or entry.ratio
-			end
-		end
-		widthSeen = applied
+		docked.lock(cx, list, pane)
 	end)
 end
 
@@ -747,10 +606,9 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 		end
 		syncDrawer(cx, state, selected, layout, owned, focus, snapshot.sidebarMode)
 		if snapshot.sidebarMode == "always" then
-			lockWidths(cx, tab, selected, owned)
+			lockWidths(cx, selected, owned)
 		else
-			-- Re-docking later resizes on its own; never mistake that for the user's drag.
-			table.clear(widthSeen)
+			docked.release()
 		end
 		return
 	end
@@ -801,7 +659,7 @@ local function refresh(cx: WindowCx, explicit: boolean?)
 		owned[pane] = true
 		syncDrawer(cx, state, pane, updatedLayout, owned, focus, snapshot.sidebarMode)
 		if snapshot.sidebarMode == "always" then
-			lockWidths(cx, tab, pane, owned)
+			lockWidths(cx, pane, owned)
 		end
 	end
 end
@@ -1203,6 +1061,27 @@ tern.command({
 	run = sidebarSettings,
 })
 
+-- Even out splits (⌃⌘=) gives the docked sidebar an equal share too. Tern evens the tab as usual;
+-- the sidebar goes straight back to the docked width instead of that counting as a drag.
+local function keepWidthOnEqualize(cx: WindowCx): boolean
+	if data.getSidebarMode() ~= "always" or not docked.locked() then
+		return false
+	end
+	local _, tab = active(cx)
+	local state = if tab then sidebars[key(tab)] else nil
+	if state and state.pane then
+		docked.forget(state.pane)
+		tern.timer(0, function(fresh: WindowCx?)
+			if fresh then
+				refresh(fresh)
+			end
+		end)
+	end
+	return false
+end
+-- Overrides take built-in ids only; a Tern without this command keeps the rest of the plugin.
+pcall(tern.override, "equalize", keepWidthOnEqualize)
+
 tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	if ev.owner ~= tern.plugin.id then
 		return false
@@ -1394,6 +1273,7 @@ tern.on("pane_closed", function(ev: PaneEvent, cx: WindowCx)
 	end
 	closing[paneKey] = nil
 	unresolvedSince[paneKey] = nil
+	docked.forget(ev.pane)
 	refresh(cx)
 end)
 tern.on("tab_closed", function(ev: TabEvent, cx: WindowCx)
