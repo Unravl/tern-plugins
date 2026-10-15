@@ -1,0 +1,57 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab,
+# in Hover left edge (default) or Always expanded mode. From the plugin folder:
+# tern ctl --control <endpoint> --file tests/session-switch.txt
+# Creates one session, SwitchTwo, then natively clicks the original session's sidebar row and,
+# from there, SwitchTwo's row. Each click must switch sessions, and the sidebar in the tab that
+# becomes active must mark that session's row current. The fresh window holds only these two
+# sessions, so each click's target is the one row not marked current. In hover mode the pointer
+# reveals the drawer from the left edge before each click; over a docked sidebar the move is inert.
+# Refreshes are explicit: hidden windows run timers slowly. Never closes sessions.
+ready
+wait 1500
+new-blocks shell
+# Helpers take each call's cx. Within one call, Carly's Lua reads a global table's field as it was
+# when the call began, so values pass only from one call to the next.
+carly lua "switchTest = {}; function switchRows(cx) local tab = cx.session:tab_of(cx.session:focused()); local sidebar; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then assert(not sidebar, 'two sidebars in the active tab'); sidebar = canvas.pane end end; assert(sidebar, 'no sidebar in the active tab'); local info = cx.canvas:get(sidebar); assert(info and info.view, 'sidebar has no view'); local rows = {}; local function walk(node) local p = node.p or {}; if p.role == 'sessions-sidebar-current' or p.role == 'sessions-sidebar-session' then rows[p.key] = p.role == 'sessions-sidebar-current' end; for _, child in node.c or {} do walk(child) end end; walk(info.view); return rows end; function switchCheck(cx, label, session, other) local current = cx.sessions:current(); assert(current and current.id == session, label .. ': the click did not switch to the session'); local rows = switchRows(cx); local mine = 'session-' .. string.format('%.0f', session); local theirs = 'session-' .. string.format('%.0f', other); assert(rows[mine] == true, label .. ': the active sidebar does not mark the session current'); assert(rows[theirs] == false, label .. ': the active sidebar does not list the other session as switchable'); local count, currents = 0, 0; for _, isCurrent in rows do count += 1; if isCurrent then currents += 1 end end; assert(count == 2, label .. ': expected two session rows, found ' .. count); assert(currents == 1, label .. ': ' .. currents .. ' rows marked current'); return 'PASS ' .. label end; local current = cx.sessions:current(); assert(current, 'current session required'); assert(#cx.sessions:list() == 1, 'run in a fresh window holding one session'); switchTest.home = current.id; return 'PASS home session recorded'"
+carly ok
+carly close
+
+session new SwitchTwo
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "local current = cx.sessions:current(); assert(current and current.id ~= switchTest.home, 'session new did not switch to SwitchTwo'); switchTest.two = current.id; return 'PASS SwitchTwo is current'"
+carly ok
+carly close
+carly lua "return switchCheck(cx, 'SwitchTwo created', switchTest.two, switchTest.home)"
+carly ok
+carly close
+
+# Click the original session's row: the one row not marked current.
+move 600 300
+wait 300
+move 8 300
+wait 500
+click "[data-role='sessions-sidebar-session']"
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "return switchCheck(cx, 'clicked the original session', switchTest.home, switchTest.two)"
+carly ok
+carly close
+
+# And back to SwitchTwo the same way.
+move 600 300
+wait 300
+move 8 300
+wait 500
+click "[data-role='sessions-sidebar-session']"
+wait 1500
+plugins run plugin.sessions-sidebar.refresh
+wait 500
+carly lua "return switchCheck(cx, 'clicked SwitchTwo', switchTest.two, switchTest.home)"
+carly ok
+carly close
+carly lua "assert(cx.session:focused(), 'no focused pane after switching'); return 'PASS session switch: sidebar row clicks switch sessions both ways and the active sidebar marks each current'"
+carly ok
+carly close

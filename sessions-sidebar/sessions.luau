@@ -63,7 +63,7 @@ type Group = {
 	rows: { ManagedSession },
 }
 
-local ui = tern.ui
+local ui = require("./tsp")
 
 local function idKey(id: number): string
 	-- Remote IDs must not pass through a 32-bit integer format or bit operation.

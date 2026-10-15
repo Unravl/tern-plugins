@@ -1096,10 +1096,18 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	end
 	local hosts = cx.hosts:list()
 	local rows = cx.sessions:list()
-	local snapshot = data.snapshot(cx, hosts, rows, preferredContent)
+	-- A snapshot reads every session's metadata (3-6 ms with six hosts). Only branches that use it
+	-- take one, at most once, so switching and moving stay far inside the 50 ms hook budget.
+	local taken: data.Snapshot? = nil
+	local function snapshot(): data.Snapshot
+		if not taken then
+			taken = data.snapshot(cx, hosts, rows, preferredContent)
+		end
+		return taken :: data.Snapshot
+	end
 	if not target then
 		syncDisplay()
-		target = sessions.build(hosts, rows, snapshot, display, agents.marks()).targets[action]
+		target = sessions.build(hosts, rows, snapshot(), display, agents.marks()).targets[action]
 		if not target then
 			return false
 		end
@@ -1152,11 +1160,19 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	elseif target.kind == "switch" and row then
 		-- Switching to the shown session jumps to the tab Tern last remembered for it, not the
 		-- visible one; clicking the current row only hands focus back to the content pane.
-		if not row.current then
+		if row.current then
+			refresh(cx)
+		else
+			-- The switch applies after this callback returns, so a refresh here would only redraw
+			-- the old session. Queue one first; the switch stays last.
+			tern.timer(0, function(fresh: WindowCx?)
+				if fresh then
+					refresh(fresh)
+				end
+			end)
 			-- Switching failures remain native errors, rather than pretending success.
 			cx.sessions:switch(row.id)
 		end
-		refresh(cx)
 	elseif target.kind == "rename-session" and row then
 		prompt(cx, "renaming session", {
 			value = row.name,
@@ -1174,12 +1190,12 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 		end)
 	elseif target.kind == "toggle-host" then
 		call(cx, "toggling host sessions", function()
-			data.setHostCollapsed(host, not snapshot.hostCollapsed[key(host.id)])
+			data.setHostCollapsed(host, not snapshot().hostCollapsed[key(host.id)])
 		end)
 		refresh(cx)
 	elseif target.kind == "rename-host" then
 		prompt(cx, "renaming host title", {
-			value = snapshot.hostTitles[key(host.id)] or host.name,
+			value = snapshot().hostTitles[key(host.id)] or host.name,
 			placeholder = "Host display title (connection address stays unchanged)",
 			icon = "pen",
 			action = "rename",
@@ -1198,9 +1214,9 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 		end)
 		refresh(cx)
 	elseif target.kind == "host-color" then
-		hostColor(cx, target, host, snapshot.hostColors[key(host.id)])
+		hostColor(cx, target, host, snapshot().hostColors[key(host.id)])
 	elseif target.kind == "change-icon" and row then
-		local metadata = snapshot.sessions[key(row.id)]
+		local metadata = snapshot().sessions[key(row.id)]
 		sessionIcon(cx, target, host, if metadata then metadata.icon else { kind = "named", value = "terminal" })
 	elseif target.kind == "reset-icon" and row then
 		call(cx, "resetting session icon", function()
@@ -1210,7 +1226,7 @@ tern.on("canvas_action", function(ev: CanvasAction, cx: WindowCx): boolean
 	elseif target.kind == "new-session" then
 		prompt(cx, "creating session", {
 			value = "",
-			placeholder = "New session on " .. (snapshot.hostTitles[key(host.id)] or host.name),
+			placeholder = "New session on " .. (snapshot().hostTitles[key(host.id)] or host.name),
 			icon = "terminal",
 			action = "create",
 		}, function(name, fresh)
