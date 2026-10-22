@@ -4,7 +4,7 @@ Plugins and tweaks for [Tern](https://docs.stencil.so/tern/). Each folder is one
 
 | Plugin | What it does |
 | --- | --- |
-| [`sessions-sidebar`](sessions-sidebar/README.md) | Left sidebar listing sessions per host, with icons, renaming, paths, omp agent status (working spinner, question asked, task finished), collapsible and reorderable hosts and sessions, custom host title colors, a per-host new-session button, and docked, click-tab or hover display |
+| [`sessions-sidebar`](sessions-sidebar/README.md) | Left sidebar listing sessions per host, with icons, renaming, paths, omp agent status (working spinner, question asked, task finished), collapsible and reorderable hosts and sessions, custom host title colors, a per-host new-session button, and docked, click-tab or hover display; plus a Boat section for boat.dev sandboxes (one row per sandbox, create, start, stop, resize, delete, named snapshots, Copy SSH details) |
 | [`spine-composer-fix`](spine-composer-fix/README.md) | Keeps the omp composer bar one even band across the pane in the Spine chat style when macOS Reduce transparency is on |
 
 ## Install a plugin

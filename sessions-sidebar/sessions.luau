@@ -16,6 +16,7 @@ export type ManagedHost = {
 	kind: "local" | "remote",
 	address: string?,
 	state: "connecting" | "connected" | "stalled" | "verify" | "reconnecting" | "failed",
+	detail: { error: string? }?,
 }
 
 export type ManagedSession = {
@@ -28,12 +29,18 @@ export type ManagedSession = {
 	tabs: number,
 }
 
-type TargetKind = "switch" | "rename-session" | "change-icon" | "reset-icon" | "rename-host" | "reset-host" | "host-color" | "new-session" | "toggle-host" | "settings" | "toggle-panel" | "move-host" | "move-session" | "place-host" | "place-session" | "cancel-move"
+type TargetKind = "switch" | "rename-session" | "change-icon" | "reset-icon" | "rename-host" | "reset-host" | "host-color" | "new-session" | "toggle-host" | "settings" | "toggle-panel" | "move-host" | "move-session" | "place-host" | "place-session" | "cancel-move" | "remove-host" | "boat" | "boats" | "snapshot"
 
 export type Target = {
 	kind: TargetKind,
 	host: number?,
 	session: number?,
+	-- The boat sandbox id of a "boat" target.
+	boat: string?,
+	-- What a "boat", "boats" (Boat section header) or "snapshot" target does (boat-ui.luau).
+	op: string?,
+	-- The snapshot name of a "snapshot" target.
+	snapshot: string?,
 }
 
 -- The one item lifted for pick-and-place reordering; `session` is set only for kind "session".
@@ -43,10 +50,26 @@ export type Moving = {
 	session: number?,
 }
 
+-- The Boat section (core.luau's display.boats). `state` is boat-view.luau's Display.
+export type BoatDisplay = {
+	-- boat-view.luau once it is loaded; until then boat sandbox hosts are not drawn at all.
+	view: { section: (ctx: any) -> Node? }?,
+	-- Asks for boat-view.luau to be loaded; the next refresh draws the section.
+	needView: () -> (),
+	-- data.comparableAddress -> sandbox id, for every listed sandbox with an address.
+	byAddress: { [string]: string },
+	-- Whether the section has anything to show: a listing, a tracked or a new sandbox.
+	wanted: boolean,
+	-- epoch seconds now, for "stops in 5 h".
+	now: number,
+	state: any,
+}
+
 export type Display = {
 	open: boolean,
 	holdOpen: boolean,
 	moving: Moving?,
+	boats: BoatDisplay?,
 }
 
 export type BuiltView = {
@@ -60,7 +83,9 @@ type Group = {
 	key: string,
 	label: string,
 	collapsed: boolean,
+	-- The rows shown (none while collapsed), and every session on the host.
 	rows: { ManagedSession },
+	all: { ManagedSession },
 }
 
 local ui = require("./tsp")
@@ -213,6 +238,7 @@ local function build(
 			label = label,
 			collapsed = snapshot.hostCollapsed[key] == true,
 			rows = {},
+			all = {},
 		}
 		byHost[key] = group
 		table.insert(groups, group)
@@ -221,8 +247,11 @@ local function build(
 	-- Group by the actual host slot, never a display name or encoded session bits.
 	for _, session in rows do
 		local group = byHost[idKey(session.host)]
-		if group and not group.collapsed then
-			table.insert(group.rows, session)
+		if group then
+			table.insert(group.all, session)
+			if not group.collapsed then
+				table.insert(group.rows, session)
+			end
 		end
 	end
 
@@ -321,101 +350,14 @@ local function build(
 	addSignature(signature, movingName)
 	addSignature(signature, tostring(#groups))
 
-	for _, group in groups do
+	-- A host group's session rows under `groupId`, in its saved order (snapshot.sessionRank), or
+	-- "No sessions".
+	local function sessionRows(group: Group, groupId: string): { Node }
 		local host = group.host
 		local connected = host.state == "connected"
-		local groupId = drawerId .. ".host-" .. group.key
-		local headingId = groupId .. ".heading"
-		local hostMenu: { string } = {}
-		if connected then
-			table.insert(hostMenu, addTarget(targets, "new-session", headingId, "new-session", host.id, nil))
-		end
-		table.insert(hostMenu, addTarget(targets, "move-host", headingId, "move-host", host.id, nil))
-		table.insert(hostMenu, addTarget(targets, "rename-host-title", headingId, "rename-host", host.id, nil))
-		table.insert(hostMenu, addTarget(targets, "reset-host-title", headingId, "reset-host", host.id, nil))
-		table.insert(hostMenu, addTarget(targets, "change-title-color", headingId, "host-color", host.id, nil))
-		local color = snapshot.hostColors[group.key]
-		local heading = group.label
-		if not connected then
-			heading ..= " · " .. host.state
-		end
-		local toggleTitle = (if group.collapsed then "Expand sessions on " else "Collapse sessions on ") .. group.label
-		local headingActions: { [string]: any } = { menu = hostMenu }
-		local headingProps: { [string]: any } = {
-			key = "heading",
-			role = "sessions-sidebar-heading",
-			title = heading,
-			align = "center",
-			actions = headingActions,
-		}
-		-- While moving, child buttons carry no actions or titles so every click reaches the heading.
-		if moving then
-			if moving.kind ~= "host" then
-				headingProps.mark = "drop"
-			elseif moving.host == host.id then
-				headingProps.mark = "pick"
-				headingProps.title = "Cancel move"
-				headingActions.click = addTarget(targets, "cancel-move", headingId, "cancel-move", nil, nil)
-			else
-				headingProps.title = "Move here"
-				headingActions.click = addTarget(targets, "place-host", headingId, "place-host", host.id, nil)
-			end
-		end
-		local headingChildren: { Node } = {
-			ui.el("button", {
-				key = "toggle",
-				role = "sessions-sidebar-host-toggle",
-				text = if group.collapsed then "+" else "-",
-				title = if moving then nil else toggleTitle,
-				aria = toggleTitle,
-				attrs = { ["aria-expanded"] = tostring(not group.collapsed) },
-				actions = if moving
-					then nil
-					else { click = addTarget(targets, "toggle-host", headingId .. ".toggle", "toggle-host", host.id, nil) },
-				shrink = 0,
-			}),
-			-- Text nodes drop `attrs`, so the title color rides on a wrapper element;
-			-- window.luau installs one CSS rule per color in use (validated "#rrggbb").
-			ui.el("div", {
-				key = "label",
-				role = "sessions-sidebar-host-label",
-				attrs = if color then { ["data-host-color"] = color } else nil,
-				grow = 1,
-				shrink = 1,
-			}, {
-				with(ui.text(heading), {
-					key = "title",
-					role = "sessions-sidebar-host-title",
-					title = heading,
-					wrap = "none",
-					truncate = "end",
-					grow = 1,
-					shrink = 1,
-				}),
-			}),
-		}
-		if connected then
-			local newTitle = "New session on " .. group.label
-			table.insert(headingChildren, ui.el("button", {
-				key = "new",
-				role = "sessions-sidebar-host-new",
-				title = if moving then nil else newTitle,
-				aria = newTitle,
-				actions = if moving
-					then nil
-					else { click = addTarget(targets, "new-session", headingId .. ".new", "new-session", host.id, nil) },
-				shrink = 0,
-			}, {
-				ui.node("icon", { key = "icon", name = "plus" }),
-			}))
-		end
-		local section: { Node } = {
-			with(ui.row(headingChildren), headingProps),
-		}
-
+		local section: { Node } = {}
 		addSignature(signature, group.key)
 		addSignature(signature, group.label)
-		addSignature(signature, color or "")
 		addSignature(signature, host.state)
 		addSignature(signature, tostring(group.collapsed))
 		addSignature(signature, tostring(#group.rows))
@@ -547,10 +489,181 @@ local function build(
 				tone = "muted",
 			}))
 		end
-		table.insert(children, with(ui.col(section), {
+		return section
+	end
+
+	-- One ordinary host's heading and session rows. A remote host's menu adds Remove host….
+	local function hostSection(group: Group, parentId: string): Node
+		local host = group.host
+		local connected = host.state == "connected"
+		local groupId = parentId .. ".host-" .. group.key
+		local headingId = groupId .. ".heading"
+		local hostMenu: { string } = {}
+		if connected then
+			table.insert(hostMenu, addTarget(targets, "new-session", headingId, "new-session", host.id, nil))
+		end
+		table.insert(hostMenu, addTarget(targets, "move-host", headingId, "move-host", host.id, nil))
+		table.insert(hostMenu, addTarget(targets, "rename-host-title", headingId, "rename-host", host.id, nil))
+		table.insert(hostMenu, addTarget(targets, "reset-host-title", headingId, "reset-host", host.id, nil))
+		table.insert(hostMenu, addTarget(targets, "change-title-color", headingId, "host-color", host.id, nil))
+		if host.kind == "remote" then
+			table.insert(hostMenu, addTarget(targets, "remove-host…", headingId, "remove-host", host.id, nil))
+		end
+		local color = snapshot.hostColors[group.key]
+		local heading = group.label
+		if not connected then
+			heading ..= " · " .. host.state
+		end
+		local tooltip = heading
+		local toggleTitle = (if group.collapsed then "Expand sessions on " else "Collapse sessions on ") .. group.label
+		local headingActions: { [string]: any } = { menu = hostMenu }
+		local headingProps: { [string]: any } = {
+			key = "heading",
+			role = "sessions-sidebar-heading",
+			title = tooltip,
+			align = "center",
+			actions = headingActions,
+		}
+		-- While moving, child buttons carry no actions or titles so every click reaches the heading.
+		if moving then
+			if moving.kind ~= "host" then
+				headingProps.mark = "drop"
+			elseif moving.host == host.id then
+				headingProps.mark = "pick"
+				headingProps.title = "Cancel move"
+				headingActions.click = addTarget(targets, "cancel-move", headingId, "cancel-move", nil, nil)
+			else
+				headingProps.title = "Move here"
+				headingActions.click = addTarget(targets, "place-host", headingId, "place-host", host.id, nil)
+			end
+		end
+		local headingChildren: { Node } = {
+			ui.el("button", {
+				key = "toggle",
+				role = "sessions-sidebar-host-toggle",
+				text = if group.collapsed then "+" else "-",
+				title = if moving then nil else toggleTitle,
+				aria = toggleTitle,
+				attrs = { ["aria-expanded"] = tostring(not group.collapsed) },
+				actions = if moving
+					then nil
+					else { click = addTarget(targets, "toggle-host", headingId .. ".toggle", "toggle-host", host.id, nil) },
+				shrink = 0,
+			}),
+			-- Text nodes drop `attrs`, so the title color rides on a wrapper element;
+			-- window.luau installs one CSS rule per color in use (validated "#rrggbb").
+			ui.el("div", {
+				key = "label",
+				role = "sessions-sidebar-host-label",
+				attrs = if color then { ["data-host-color"] = color } else nil,
+				grow = 1,
+				shrink = 1,
+			}, {
+				with(ui.text(heading), {
+					key = "title",
+					role = "sessions-sidebar-host-title",
+					title = tooltip,
+					wrap = "none",
+					truncate = "end",
+					grow = 1,
+					shrink = 1,
+				}),
+			}),
+		}
+		if connected then
+			local newTitle = "New session on " .. group.label
+			table.insert(headingChildren, ui.el("button", {
+				key = "new",
+				role = "sessions-sidebar-host-new",
+				title = if moving then nil else newTitle,
+				aria = newTitle,
+				actions = if moving
+					then nil
+					else { click = addTarget(targets, "new-session", headingId .. ".new", "new-session", host.id, nil) },
+				shrink = 0,
+			}, {
+				ui.node("icon", { key = "icon", name = "plus" }),
+			}))
+		end
+		addSignature(signature, color or "")
+		addSignature(signature, table.concat(hostMenu, "|"))
+		local section: { Node } = {
+			with(ui.row(headingChildren), headingProps),
+		}
+		for _, row in sessionRows(group, groupId) do
+			table.insert(section, row)
+		end
+		return with(ui.col(section), {
 			key = "host-" .. group.key,
 			role = "sessions-sidebar-host",
-		}))
+		})
+	end
+
+	-- The Boat section comes first (boat-view.luau): every sandbox of the boat.dev account as one
+	-- row, never its host's session rows. A boat sandbox host is never drawn as an ordinary host,
+	-- even before that module is loaded (window.luau loads it before the first refresh when there
+	-- is something to show).
+	local boatDisplay = display.boats
+	local boatView = if boatDisplay then boatDisplay.view else nil
+	local regular: { Group } = {}
+	local boatGroups: { { [string]: any } } = {}
+	for _, group in groups do
+		local record = snapshot.hostBoats[group.key]
+		local address = group.host.address
+		local id = if record
+			then record.id
+			elseif boatDisplay and address and group.host.kind == "remote" then boatDisplay.byAddress[data.comparableAddress(address)]
+			else nil
+		if id then
+			table.insert(boatGroups, { host = group.host, key = group.key, label = group.label, id = id, rows = group.all })
+		else
+			table.insert(regular, group)
+		end
+	end
+	if boatDisplay and not boatView and (boatDisplay.wanted or #boatGroups > 0 or #snapshot.detachedBoats > 0) then
+		boatDisplay.needView()
+	end
+	local boatSection: Node? = nil
+	if boatDisplay and boatView then
+		boatSection = boatView.section({
+			id = drawerId .. ".boats",
+			snapshot = snapshot,
+			display = boatDisplay.state,
+			groups = boatGroups,
+			moving = moving ~= nil,
+			now = boatDisplay.now,
+			target = function(action: string, node: string, target: { [string]: any }): string
+				targets[action .. "\n" .. node] = target :: any
+				return action
+			end,
+			sig = function(value: string)
+				addSignature(signature, value)
+			end,
+			-- The agent marks of a sandbox's sessions, summed, as on a session row.
+			marks = function(sessions: { ManagedSession }): Node?
+				if not marks then
+					return nil
+				end
+				local total = { question = 0, working = 0, done = 0 }
+				for _, session in sessions do
+					local counts = marks[idKey(session.id)]
+					if counts then
+						total.question += counts.question
+						total.working += counts.working
+						total.done += counts.done
+					end
+				end
+				addSignature(signature, tostring(total.question) .. "/" .. tostring(total.working) .. "/" .. tostring(total.done))
+				return (agentMarks(total))
+			end,
+		})
+	end
+	addSignature(signature, if boatSection then "boats" else "")
+	if boatSection then
+		table.insert(children, boatSection)
+	end
+	for _, group in regular do
+		table.insert(children, hostSection(group, drawerId))
 	end
 
 	if #groups == 0 then

@@ -6,10 +6,28 @@ export type SessionMetadata = {
 	path: string,
 	icon: Icon,
 }
+-- A boat.dev sandbox the sidebar tracks: one it (or the boat-sandbox script's add-host request)
+-- created or connected. Keyed by its sandbox id; `title` is its sidebar title, `address` the Tern
+-- host address it was last attached at, `error` the last failed operation's message and `savedAt`
+-- (epoch seconds) when the record was last saved, so an account listing older than that cannot
+-- call it gone.
+export type Boat = {
+	id: string,
+	name: string,
+	title: string,
+	address: string?,
+	state: "running" | "stopped",
+	error: string?,
+	savedAt: number?,
+}
+-- A tracked boat sandbox that no host of this window is attached to, with its display title.
+export type DetachedBoat = { boat: Boat, title: string }
 export type Snapshot = {
 	hostTitles: { [string]: string },
 	-- idKey(host.id) -> lowercase "#rrggbb" title color; absent uses the theme color.
 	hostColors: { [string]: string },
+	-- idKey(host.id) -> true when hostTitles is a saved title alias, not Tern's own host name.
+	hostAliased: { [string]: boolean },
 	hostCollapsed: { [string]: boolean },
 	sidebarMode: SidebarMode,
 	sessions: { [string]: SessionMetadata },
@@ -17,11 +35,21 @@ export type Snapshot = {
 	hostRank: { [string]: number },
 	-- idKey(session.id) -> 1..n final display order within its host.
 	sessionRank: { [string]: number },
+	-- idKey(host.id) -> the boat sandbox an attached remote host is.
+	hostBoats: { [string]: Boat },
+	detachedBoats: { DetachedBoat },
 }
 -- The docked sidebar's width in Always expanded mode: `cols` whole cells at terminal font size
 -- `font`, which is what a window resize keeps, and `fraction`, its share of the tab width when
 -- saved, which a new window starts from.
 export type DockedWidth = { cols: number, font: number?, fraction: number? }
+-- What a refresh read of the window already: snapshot uses it instead of reading it again.
+export type Window = {
+	canvases: { CanvasInfo },
+	tabs: { TabInfo },
+	panes: { PaneInfo },
+	focused: number?,
+}
 
 type Values = { [string]: any }
 type NameCounts = { [string]: number }
@@ -45,6 +73,18 @@ local DOCKED_CELLS = "sidebar.docked-width.v2"
 local HOST_ORDER = "sidebar.host-order.v1"
 -- { [stableHostKey]: array of unique session names }, first displayed first.
 local SESSION_ORDER = "sidebar.session-order.v1"
+-- { [boat sandbox id]: Boat }
+local BOATS = "sidebar.boats.v1"
+-- true while the Boat section's Snapshots list is folded.
+local SNAPSHOTS_COLLAPSED = "sidebar.boat-snapshots-collapsed.v1"
+-- true while the Boat section shows each sandbox's second line (Show details).
+local BOAT_DETAILS = "sidebar.boat-details.v1"
+-- Tests only: { script = argv, env = { NAME = value }, copies = path }: the command run instead of
+-- ~/bin/boat-sandbox, variables added to its environment (for example BOAT_SANDBOX_DEFAULTS), and
+-- a file that receives the sidebar's copies (one JSON string per line) instead of the clipboard.
+local BOAT_COMMANDS = "sidebar.boat-commands.v1"
+-- Saved per stable host key; a boat sandbox's preferences follow it to a new address.
+local HOST_MAPS = { HOST_TITLES, HOST_COLORS, HOST_COLLAPSED, SESSION_ICONS, SESSION_ORDER }
 local DEFAULT_ICON: Icon = { kind = "named", value = "terminal" }
 
 -- Received session ids belong only to this VM. In particular, ambiguous names
@@ -58,16 +98,20 @@ local function idKey(id: number): string
 	return string.format("%.0f", id)
 end
 
+-- JSON tuples distinguish addresses from fallback names without delimiter
+-- ambiguity. These are display preferences, not remote trust identities.
+local function addressKey(address: string): string
+	return tern.json.encode({ "remote-address", address })
+end
+
 local function hostKey(host: ManagedHost): string
 	if host.kind == "local" then
 		return "local"
 	end
 	local address = host.address
 	if address and address ~= "" then
-		return tern.json.encode({ "remote-address", address })
+		return addressKey(address)
 	end
-	-- JSON tuples distinguish addresses from fallback names without delimiter
-	-- ambiguity. These are display preferences, not remote trust identities.
 	return tern.json.encode({ "remote-name", host.name })
 end
 
@@ -406,11 +450,77 @@ local function setHostCollapsed(host: ManagedHost, collapsed: boolean): ()
 	tern.kv.set(HOST_COLLAPSED, saved)
 end
 
+-- Tern stores IPv6 hosts without brackets; requests may carry them. Case never matters.
+local function comparableAddress(address: string): string
+	return string.lower((string.gsub(address, "[%[%]]", "")))
+end
+
+local function validBoat(id: any, value: any): Boat?
+	if type(id) ~= "string" or not string.match(id, "^bx_%w+$") or type(value) ~= "table" then
+		return nil
+	end
+	local name, title, address = value.name, value.title, value.address
+	if type(name) ~= "string" or not string.find(name, "%S") or type(title) ~= "string" or not string.find(title, "%S") then
+		return nil
+	end
+	if address ~= nil and (type(address) ~= "string" or not string.find(address, "^%S+$")) then
+		return nil
+	end
+	local message, savedAt = value.error, value.savedAt
+	return {
+		id = id,
+		name = name,
+		title = title,
+		address = address,
+		state = if value.state == "stopped" then "stopped" else "running",
+		error = if type(message) == "string" and string.find(message, "%S") then message else nil,
+		savedAt = if type(savedAt) == "number" and savedAt > 0 then savedAt else nil,
+	}
+end
+
+local function getBoats(): { [string]: Boat }
+	local boats: { [string]: Boat } = {}
+	for id, value in readValues(BOATS) do
+		local boat = validBoat(id, value)
+		if boat then
+			boats[id] = boat
+		end
+	end
+	return boats
+end
+
+local function getBoat(id: string): Boat?
+	return getBoats()[id]
+end
+
+-- The boat sandbox last attached at `address`; the lowest id wins should two claim it.
+local function boatAt(boats: { [string]: Boat }, address: string): Boat?
+	local wanted = comparableAddress(address)
+	local found: Boat? = nil
+	for _, boat in boats do
+		local at = boat.address
+		if at and comparableAddress(at) == wanted and (found == nil or boat.id < found.id) then
+			found = boat
+		end
+	end
+	return found
+end
+
+-- The title alias of the boat's address (Rename host title), else the title it was created with.
+local function titleOfBoat(titles: Values, boat: Boat): string
+	local address = boat.address
+	local title = if address then titles[addressKey(address)] else nil
+	return if type(title) == "string" and string.find(title, "%S") then title else boat.title
+end
+
+-- `window`: the canvas, tab and pane lists and the focused pane the caller read already (a
+-- refresh reads them once for everything it does); without it they are read here.
 local function snapshot(
 	cx: WindowCx,
 	hosts: { ManagedHost },
 	rows: { ManagedSession },
-	preferredContent: ((tab: number) -> number?)?
+	preferredContent: ((tab: number) -> number?)?,
+	window: Window?
 ): Snapshot
 	local titles = readValues(HOST_TITLES)
 	local colors = readValues(HOST_COLORS)
@@ -419,11 +529,14 @@ local function snapshot(
 	local result: Snapshot = {
 		hostTitles = {},
 		hostColors = {},
+		hostAliased = {},
 		hostCollapsed = {},
 		sidebarMode = getSidebarMode(),
 		sessions = {},
 		hostRank = {},
 		sessionRank = {},
+		hostBoats = {},
+		detachedBoats = {},
 	}
 	local stableHosts: { [string]: string } = {}
 	local names: { [string]: NameCounts } = {}
@@ -433,11 +546,30 @@ local function snapshot(
 		stableHosts[key] = stable
 		names[key] = {}
 		result.hostTitles[key] = displayTitle(titles, host)
+		local alias = titles[stable]
+		result.hostAliased[key] = type(alias) == "string" and string.find(alias, "%S") ~= nil
 		result.hostColors[key] = normalizeColor(colors[stable])
 		result.hostCollapsed[key] = collapsed[stable] == true
 	end
 	for index, host in orderHosts(hosts, titles, stringList(tern.kv.get(HOST_ORDER))) do
 		result.hostRank[idKey(host.id)] = index
+	end
+	local boats = getBoats()
+	local attached: { [string]: boolean } = {}
+	for _, host in hosts do
+		local address = host.address
+		if host.kind == "remote" and address and address ~= "" then
+			local boat = boatAt(boats, address)
+			if boat then
+				result.hostBoats[idKey(host.id)] = boat
+				attached[boat.id] = true
+			end
+		end
+	end
+	for id, boat in boats do
+		if not attached[id] then
+			table.insert(result.detachedBoats, { boat = boat, title = titleOfBoat(titles, boat) })
+		end
 	end
 	local sessionOrder = readValues(SESSION_ORDER)
 	for _, host in hosts do
@@ -469,13 +601,19 @@ local function snapshot(
 		end
 	end
 
+	local seen: Window = window or {
+		canvases = cx.canvas:list(),
+		tabs = cx.session:tabs(),
+		panes = cx.session:panes(),
+		focused = cx.session:focused(),
+	}
 	local canvasOwners: { [string]: string } = {}
-	for _, canvas in cx.canvas:list() do
+	for _, canvas in seen.canvases do
 		canvasOwners[idKey(canvas.pane)] = canvas.owner
 	end
-	local tabs = cx.session:tabs()
-	local panes = cx.session:panes()
-	local focused = cx.session:focused()
+	local tabs = seen.tabs
+	local panes = seen.panes
+	local focused = seen.focused
 	local selected: TabInfo? = nil
 	local byTab: { [string]: ObservedTab } = {}
 	for _, tab in tabs do
@@ -564,16 +702,176 @@ local function snapshot(
 	return result
 end
 
-local function setHostTitle(host: ManagedHost, title: string?): ()
+local function saveTitle(stable: string, title: string?): ()
 	if title and not string.find(title, "%S") then
 		error("A host title must not be blank.")
 	end
 	local titles = readValues(HOST_TITLES)
-	if titles[hostKey(host)] == title then
+	if titles[stable] == title then
 		return
 	end
-	titles[hostKey(host)] = title
+	titles[stable] = title
 	tern.kv.set(HOST_TITLES, titles)
+end
+
+local function setHostTitle(host: ManagedHost, title: string?): ()
+	saveTitle(hostKey(host), title)
+end
+
+-- Titles a remote address before its host exists, so it shows that way from first contact.
+local function setAddressTitle(address: string, title: string?): ()
+	saveTitle(addressKey(address), title)
+end
+
+-- Moves every preference saved under stable host key `from` (title, color, folding, place, session
+-- order and icons) to `to`, keeping any that `to` already has; without `to`, forgets them.
+local function moveStable(from: string, to: string?): ()
+	if from == to then
+		return
+	end
+	for _, name in HOST_MAPS do
+		local saved = readValues(name)
+		if saved[from] ~= nil then
+			if to and saved[to] == nil then
+				saved[to] = saved[from]
+			end
+			saved[from] = nil
+			tern.kv.set(name, saved)
+		end
+	end
+	local order = stringList(tern.kv.get(HOST_ORDER))
+	local index = table.find(order, from)
+	if index then
+		if to and not table.find(order, to) then
+			order[index] = to
+		else
+			table.remove(order, index)
+		end
+		tern.kv.set(HOST_ORDER, if #order > 0 then order else nil)
+	end
+	local remembered = sessionOrders[from]
+	sessionOrders[from] = nil
+	if to and remembered and not sessionOrders[to] then
+		sessionOrders[to] = remembered
+	end
+end
+
+-- Moves the preferences of the host at address `old` to `new`, or forgets them without `new`. A
+-- boat sandbox can come back from Stop at another address.
+local function moveAddress(old: string, new: string?): ()
+	moveStable(addressKey(old), if new then addressKey(new) else nil)
+end
+
+-- Forgets every preference saved for a host (Remove host…). This PC keeps its own.
+local function forgetHost(host: ManagedHost): ()
+	if host.kind ~= "local" then
+		moveStable(hostKey(host), nil)
+	end
+end
+
+local function epochNow(): number?
+	local ok, now = pcall(os.time)
+	return if ok and type(now) == "number" then now else nil
+end
+
+-- Saves a boat sandbox record, stamped with the time; when its address changed, the old
+-- address's preferences move along.
+local function saveBoat(boat: Boat): ()
+	local clean = validBoat(boat.id, boat)
+	if not clean then
+		error("A boat sandbox record needs a bx_ id, a name and a title.")
+	end
+	clean.savedAt = epochNow()
+	local saved = readValues(BOATS)
+	local previous = validBoat(clean.id, saved[clean.id])
+	local before = if previous then previous.address else nil
+	local after = clean.address
+	if before and after and comparableAddress(before) ~= comparableAddress(after) then
+		moveAddress(before, after)
+	end
+	saved[clean.id] = clean
+	tern.kv.set(BOATS, saved)
+end
+
+-- Forgets a deleted boat sandbox together with every preference saved for its address.
+local function forgetBoat(id: string): ()
+	local saved = readValues(BOATS)
+	if saved[id] == nil then
+		return
+	end
+	local boat = validBoat(id, saved[id])
+	saved[id] = nil
+	tern.kv.set(BOATS, saved)
+	local address = if boat then boat.address else nil
+	if address then
+		moveAddress(address, nil)
+	end
+end
+
+local function boatTitle(boat: Boat): string
+	return titleOfBoat(readValues(HOST_TITLES), boat)
+end
+
+local function argvList(value: any): { string }?
+	if type(value) ~= "table" then
+		return nil
+	end
+	local argv: { string } = {}
+	for _, part in ipairs(value) do
+		if type(part) ~= "string" or part == "" then
+			return nil
+		end
+		table.insert(argv, part)
+	end
+	return if #argv > 0 then argv else nil
+end
+
+-- Tests only: the argv that replaces the boat-sandbox script.
+local function getBoatCommand(): { string }?
+	local saved = tern.kv.get(BOAT_COMMANDS)
+	return if type(saved) == "table" then argvList(saved.script) else nil
+end
+
+-- Tests only: variables added to the boat-sandbox script's environment.
+local function getBoatEnv(): { [string]: string }
+	local saved = tern.kv.get(BOAT_COMMANDS)
+	local env: { [string]: string } = {}
+	local values = if type(saved) == "table" then saved.env else nil
+	if type(values) == "table" then
+		for name, value in values do
+			if type(name) == "string" and string.match(name, "^[%a_][%w_]*$") and type(value) == "string" then
+				env[name] = value
+			end
+		end
+	end
+	return env
+end
+
+-- Tests only: the file the sidebar's copies go to instead of the clipboard.
+local function getCopyFile(): string?
+	local saved = tern.kv.get(BOAT_COMMANDS)
+	local path = if type(saved) == "table" then saved.copies else nil
+	return if type(path) == "string" and string.sub(path, 1, 1) == "/" then path else nil
+end
+
+local function getSnapshotsCollapsed(): boolean
+	return tern.kv.get(SNAPSHOTS_COLLAPSED) == true
+end
+
+local function setSnapshotsCollapsed(collapsed: boolean): ()
+	if getSnapshotsCollapsed() ~= collapsed then
+		tern.kv.set(SNAPSHOTS_COLLAPSED, if collapsed then true else nil)
+	end
+end
+
+local function getBoatDetails(): boolean
+	return tern.kv.get(BOAT_DETAILS) == true
+end
+
+local function setBoatDetails(shown: boolean): ()
+	if getBoatDetails() ~= shown then
+		tern.kv.set(BOAT_DETAILS, if shown then true else nil)
+	end
 end
 
 local function setHostColor(host: ManagedHost, color: string?): ()
@@ -761,6 +1059,7 @@ end
 return {
 	snapshot = snapshot,
 	setHostTitle = setHostTitle,
+	setAddressTitle = setAddressTitle,
 	setHostColor = setHostColor,
 	normalizeColor = normalizeColor,
 	getSidebarMode = getSidebarMode,
@@ -772,4 +1071,18 @@ return {
 	renameSession = renameSession,
 	moveHost = moveHost,
 	moveSession = moveSession,
+	comparableAddress = comparableAddress,
+	forgetHost = forgetHost,
+	getBoats = getBoats,
+	getBoat = getBoat,
+	saveBoat = saveBoat,
+	forgetBoat = forgetBoat,
+	boatTitle = boatTitle,
+	getBoatCommand = getBoatCommand,
+	getBoatEnv = getBoatEnv,
+	getCopyFile = getCopyFile,
+	getSnapshotsCollapsed = getSnapshotsCollapsed,
+	setSnapshotsCollapsed = setSnapshotsCollapsed,
+	getBoatDetails = getBoatDetails,
+	setBoatDetails = setBoatDetails,
 }

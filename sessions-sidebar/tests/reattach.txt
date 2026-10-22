@@ -1,0 +1,106 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab
+# (any display mode). From the plugin folder:
+# tern ctl --control <endpoint> --file tests/reattach.txt
+# A remote host that goes away and attaches again (a boat sandbox's Stop and Start, Resize, Remove
+# from Tern and Connect) comes back with the same tab and pane ids, and Tern 0.9.5 reports no
+# pane_closed or tab_closed when it goes. Before 1.11.1 the sidebar kept its state for those ids: the
+# returning tab got no sidebar (taken for hidden) or kept a frozen one, with "The sidebar canvas is
+# not available in this window". Through the fake boat-sandbox script of boat-sandbox.txt, a
+# loopback host tracked as Boat Sandbox (re) is removed with Remove from Tern, attached again,
+# disconnected by Tern and attached again (`remote loopback` stands in for Connect, which cannot
+# reach a loopback host), while the listing changes each time. The returning tab must show exactly
+# one sidebar drawn from the newest listing (Show details on: the row's second line), with the
+# sandbox as its one current row and none of its host's sessions; the listing must be read again
+# (also by an ordinary refresh a minute later) and Tern's log must hold no sidebar error or hook
+# overrun. Adds one loopback remote host and disconnects it; removes its fake files, records and
+# cache and puts back the hook it found. Selectors start with `.tn-pane:not(.off)`: hidden tabs keep
+# their sidebars off screen.
+ready
+wait 1500
+carly lua "boatTest = {}; local config = tern.getenv('TERN_CONFIG_DIR'); assert(config, 'TERN_CONFIG_DIR must point at the isolated config'); boatTest.dir = config .. '/plugin-data/sessions-sidebar'; tern.fs.mkdir(boatTest.dir); boatTest.kv = boatTest.dir .. '/kv.json'; boatTest.log = boatTest.dir .. '/fake-boat.log'; boatTest.script = boatTest.dir .. '/fake-boat.sh'; boatTest.defaults = boatTest.dir .. '/fake-defaults.json'; boatTest.copies = boatTest.dir .. '/fake-copies.txt'; boatTest.request = boatTest.dir .. '/add-host.json'; boatTest.result = boatTest.dir .. '/add-host.result.json'; local lines = { [[dir=$(dirname ^$0^)]], [[printf '%s|' ^$@^ >> ^$dir/fake-boat.log^; echo >> ^$dir/fake-boat.log^]], [[mode=${1#--}]], [[if [ -f ^$dir/fake-delay-$mode^ ]; then sleep ^$(cat ^$dir/fake-delay-$mode^)^; fi]], [[if [ ^$mode^ = set-defaults ] && [ -n ^$BOAT_SANDBOX_DEFAULTS^ ]; then printf '%s' ^$2^ > ^$BOAT_SANDBOX_DEFAULTS^; fi]], [[if [ -f ^$dir/fake-$mode.json^ ]; then cat ^$dir/fake-$mode.json^; echo; exit 0; fi]], [[printf '{^ok^:false,^error^:^fake %s refused^}' ^$mode^; echo; exit 1]] }; tern.fs.write(boatTest.script, (string.gsub(table.concat(lines, string.char(10)), '%^', string.char(34)))); for _, path in { boatTest.log, boatTest.request, boatTest.result, boatTest.defaults, boatTest.copies } do if tern.fs.exists(path) then tern.fs.remove(path) end end; for _, entry in tern.fs.list(boatTest.dir) do local name = if type(entry) == 'table' then entry.name else entry; if type(name) == 'string' and string.sub(name, 1, 5) == 'fake-' and name ~= 'fake-boat.sh' then tern.fs.remove(boatTest.dir .. '/' .. name) end end; function boatKv() return if tern.fs.exists(boatTest.kv) then tern.json.decode(tern.fs.read(boatTest.kv)) else {} end; function boatKvSet(key, value) local kv = boatKv(); kv[key] = value; tern.fs.write(boatTest.kv, tern.json.encode(kv)) end; function boatFake(mode, value) local path = boatTest.dir .. '/fake-' .. mode .. '.json'; if value == nil then if tern.fs.exists(path) then tern.fs.remove(path) end else tern.fs.write(path, tern.json.encode(value)) end end; function boatDelay(mode, seconds) local path = boatTest.dir .. '/fake-delay-' .. mode; if seconds then tern.fs.write(path, tostring(seconds)) elseif tern.fs.exists(path) then tern.fs.remove(path) end end; function boatCalls() return if tern.fs.exists(boatTest.log) then tern.fs.read(boatTest.log) else '' end; function boatCalled(argv) return string.find(boatCalls(), argv, 1, true) ~= nil end; function boatCopies() local found = {}; if tern.fs.exists(boatTest.copies) then for line in string.gmatch(tern.fs.read(boatTest.copies), '[^' .. string.char(10) .. ']+') do table.insert(found, tern.json.decode(line)) end end; return found end; function boatIso(offset) return os.date('!%Y-%m-%dT%H:%M:%SZ', os.time() + offset) end; function boatBox(t) return { id = t.id, name = t.name, state = t.state or 'running', rawState = t.raw or 'idle', type = t.type or 'default', vcpu = 4, memoryGB = 8, ip = t.ip, address = t.address, autoStopAt = t.autoStopAt, noAutoStop = t.noAutoStop or false, ttlSeconds = 3600, environment = 'base', createdAt = boatIso(-86400), stoppedAt = t.stoppedAt, dataExpiresAt = t.dataExpiresAt, usage = t.usage or { seconds = 6480, dollars = 0.0648 } } end; boatTest.snaps = { { name = 'snap-a', sizeBytes = 2400000000, createdAt = boatIso(-172800), sourceSandboxId = 'bx_testrun1', status = 'ready', type = 'default' }, { name = 'snap.b', sizeBytes = 1200000000, createdAt = boatIso(-3600), sourceSandboxId = 'bx_testfree1', status = 'ready', type = 'small' } }; boatTest.limits = { quotaSeconds = 2000000, remainingSeconds = 1640000, periodEnd = '2026-11-14T12:00:00.000Z', liveUsageSeconds = 3600, packSeconds = 0, planDollars = 20, activeSandboxes = 1, canStart = true, starts = { day = { limit = 200, remaining = 190, used = 10 }, hour = { limit = 60, remaining = 58, used = 2 } } }; function boatInventory(boxes, opts) opts = opts or {}; boatTest.boxes = boxes; boatFake('inventory', { ok = true, fetchedAt = boatIso(0), sandboxes = boxes, snapshots = opts.snapshots or boatTest.snaps, allowance = opts.allowance or { used = 2, free = 10, pricePerExtraMonthlyDollars = 1.7 }, limits = opts.limits or boatTest.limits, environments = { { name = 'base', isDefault = true }, { name = 'gpu-tools', isDefault = false } }, defaults = opts.defaults or { snapshot = 'snap-a', type = 'default', hours = 24, secrets = true }, errors = opts.errors or {} }) end; function boatView() local tab = cx.session:tab_of(cx.session:focused()); for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then local info = cx.canvas:get(canvas.pane); assert(info and info.view, 'sidebar has no view'); return info.view end end; error('no sidebar in the active tab') end; function boatNodes(role, root) local want = if type(role) == 'table' then role else { role }; local found = {}; local function walk(node) local p = node.p or {}; if p.role and table.find(want, p.role) then table.insert(found, node) end; for _, child in node.c or {} do walk(child) end end; walk(root or boatView()); return found end; function boatText(node) local p = node.p or {}; if p.text then return p.text end; local parts = {}; for _, span in p.spans or {} do table.insert(parts, if type(span) == 'table' then span.t else tostring(span)) end; for _, child in node.c or {} do table.insert(parts, boatText(child)) end; return table.concat(parts) end; function boatRows(root) local section = boatNodes('sessions-sidebar-boats', root)[1]; if not section then return {} end; return boatNodes({ 'sessions-sidebar-boat', 'sessions-sidebar-boat-current' }, section) end; function boatName(row) local node = boatNodes('sessions-sidebar-boat-name', row)[1]; return if node then boatText(node) else '' end; function boatNames() local names = {}; for _, row in boatRows() do table.insert(names, boatName(row)) end; return table.concat(names, '|') end; function boatEntry(name) for _, row in boatRows() do if boatName(row) == name then return row end end; return nil end; function boatMenu(row) local actions = row.p.actions or {}; return table.concat(actions.menu or {}, '|') end; function boatClick(row) local actions = row.p.actions or {}; return actions.click end; function boatLine(row, n) local i = 0; for line in string.gmatch(row.p.title or '', '[^' .. string.char(10) .. ']+') do i += 1; if i == n then return line end end; return '' end; function boatAttached(row) local label = boatNodes('sessions-sidebar-boat-label', row)[1]; return label ~= nil and label.p.attrs['data-boat'] == 'attached' end; function boatMarks(row) local found = {}; for _, mark in boatNodes({ 'sessions-sidebar-question', 'sessions-sidebar-working', 'sessions-sidebar-done' }, row) do table.insert(found, if mark.p.role == 'sessions-sidebar-question' then mark.p.text elseif mark.p.role == 'sessions-sidebar-working' then mark.k else 'done') end; return table.concat(found, '|') end; function boatBadge(row) local badge = boatNodes('sessions-sidebar-boat-state', row)[1]; return if badge then badge.p.text .. '/' .. badge.p.tone else 'none' end; function boatDetail(row) local node = boatNodes('sessions-sidebar-boat-detail', row)[1]; return if node then boatText(node) else '' end; function boatSnap(name) local section = boatNodes('sessions-sidebar-snapshots')[1]; if not section then return nil end; for _, row in boatNodes('sessions-sidebar-snapshot', section) do local n = boatNodes('sessions-sidebar-snapshot-name', row)[1]; if n and boatText(n) == name then return row end end; return nil end; function boatGroups() local titles = {}; for _, group in boatNodes('sessions-sidebar-host') do local title = boatNodes('sessions-sidebar-host-title', group)[1]; table.insert(titles, if title then boatText(title) else '?') end; return titles end; function boatSessionRows() local keys = {}; for _, row in boatNodes({ 'sessions-sidebar-session', 'sessions-sidebar-current' }) do keys[row.p.key] = row.p.role end; return keys end; function boatRecord(id) return (boatKv()['sidebar.boats.v1'] or {})[id] end; function boatHost(name) for _, host in cx.hosts:list() do if host.kind == 'remote' and host.name == name then return host end end; return nil end; function boatHostRows(name) local host = boatHost(name); local found = {}; if host then for _, row in cx.sessions:list() do if row.host == host.id then table.insert(found, row) end end end; return found end; boatTest.hook = boatKv()['sidebar.boat-commands.v1']; boatKvSet('sidebar.boats.v1', nil); boatKvSet('sidebar.boat-snapshots-collapsed.v1', nil); boatKvSet('sidebar.boat-details.v1', nil); boatKvSet('sidebar.boat-commands.v1', { script = { '/bin/sh', boatTest.script }, env = { BOAT_SANDBOX_DEFAULTS = boatTest.defaults }, copies = boatTest.copies }); return 'PASS fake boat-sandbox installed'"
+carly ok
+carly close
+carly lua "reTest = {}; boatKvSet('sidebar.boat-details.v1', true); local logs = tern.getenv('STENCIL_LOG_DIR'); assert(logs, 'STENCIL_LOG_DIR must point at the isolated logs'); reTest.log = logs .. '/tern.log'; reTest.logFrom = if tern.fs.exists(reTest.log) then #tern.fs.read(reTest.log) else 0; function reLogProblems() local found = {}; if not tern.fs.exists(reTest.log) then return found end; local tail = string.sub(tern.fs.read(reTest.log), reTest.logFrom + 1); for line in string.gmatch(tail, '[^' .. string.char(10) .. ']+') do if string.find(line, 'sessions-sidebar', 1, true) and (string.find(line, ' ERROR ', 1, true) or string.find(line, 'exceeded', 1, true) or string.find(line, 'not available in this window', 1, true)) then table.insert(found, line) end end; return found end; function reSidebars() local tab = cx.session:tab_of(cx.session:focused()); local found = {}; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then table.insert(found, canvas.pane) end end; return found end; function reReads() local count = 0; for _ in string.gmatch(boatCalls(), '%-%-inventory|') do count += 1 end; return count end; function reListing(size, dollars) boatInventory({ boatBox({ id = 'bx_testre1', name = 're', type = size, ip = '127.0.0.1', address = reTest.address, autoStopAt = boatIso(3 * 3600 + 120), usage = { seconds = 3600, dollars = dollars } }) }) end; function reCheck(label, detail) local panes = reSidebars(); assert(#panes == 1, label .. ': ' .. #panes .. ' sidebars in the host tab'); local entry = boatEntry('re'); assert(entry and entry.p.key == 'boat-bx_testre1' and boatAttached(entry), label .. ': re is not its connected row'); assert(entry.p.role == 'sessions-sidebar-boat-current', label .. ': the returning tab does not mark re current'); assert(boatBadge(entry) == 'none', label .. ': badge ' .. boatBadge(entry)); assert(boatDetail(entry) == detail, label .. ': detail ' .. boatDetail(entry)); for _, title in boatGroups() do assert(title ~= 're-box' and title ~= 'Boat Sandbox (re)', label .. ': re-box is also an ordinary host group') end; local rows = boatSessionRows(); for _, row in boatHostRows('re-box') do assert(rows['session-' .. string.format('%.0f', row.id)] == nil, label .. ': a session of re-box is listed') end; local problems = reLogProblems(); assert(#problems == 0, label .. ': ' .. table.concat(problems, ' / ')); return string.format('%.0f', panes[1]) end; return 'PASS reattach helpers'"
+carly ok
+carly close
+
+# A loopback host tracked as Boat Sandbox (re): its tab gets a sidebar drawn from the listing.
+remote loopback re-box
+wait 2000
+carly lua "local host = boatHost('re-box'); assert(host and host.state == 'connected', 'no connected loopback host re-box'); reTest.address = host.address; reTest.tab = string.format('%.0f', cx.session:tab_of(cx.session:focused())); local titles = boatKv()['sidebar.host-titles.v1'] or {}; titles[tern.json.encode({ 'remote-address', host.address })] = 'Boat Sandbox (re)'; boatKvSet('sidebar.host-titles.v1', titles); boatKvSet('sidebar.boats.v1', { bx_testre1 = { id = 'bx_testre1', name = 're', title = 'Boat Sandbox (re)', address = host.address, state = 'running' } }); reListing('small', 0.06); return 'tracked re-box as Boat Sandbox (re)'"
+carly ok
+carly close
+wait 5500
+plugins run plugin.sessions-sidebar.refresh
+wait 5500
+plugins run plugin.sessions-sidebar.refresh
+wait 2000
+carly lua "reTest.pane = reCheck('attached', 'small · stops in 3 h · $0.06'); reTest.reads = reReads(); return 'PASS tab ' .. reTest.tab .. ' shows its sidebar ' .. reTest.pane"
+carly ok
+carly close
+
+# Remove from Tern (its row's menu) takes the host away with its tab and that tab's sidebar. The
+# listing changes while it is away; attached again, the same ids come back.
+carly lua "reListing('large', 0.07); return 'the listing says large'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testre1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testre1']"
+wait 500
+tree [role=menuitem]
+click "[role=menu] [role=menuitem]:nth-of-type(11)"
+wait 2000
+carly lua "assert(boatHost('re-box') == nil, 'Remove from Tern left the host attached'); assert(boatRecord('bx_testre1'), 'Remove from Tern forgot the sandbox'); return 'PASS removed from Tern'"
+carly ok
+carly close
+remote loopback re-box
+wait 6000
+plugins run plugin.sessions-sidebar.refresh
+wait 5500
+plugins run plugin.sessions-sidebar.refresh
+wait 2000
+carly lua "local pane = reCheck('attached again', 'large · stops in 3 h · $0.07'); assert(reReads() > reTest.reads, 'the listing was not read again'); reTest.reads = reReads(); local tab = string.format('%.0f', cx.session:tab_of(cx.session:focused())); return 'PASS returning tab ' .. tab .. (if tab == reTest.tab then ' (same id)' else '') .. ' shows a current sidebar ' .. pane"
+carly ok
+carly close
+
+# Tern's own disconnect, then attached again.
+carly lua "reListing('default', 0.08); return 'the listing says default'"
+carly ok
+carly close
+remote disconnect re-box
+wait 2000
+carly lua "assert(boatHost('re-box') == nil, 'the host is still attached'); return 'PASS disconnected'"
+carly ok
+carly close
+remote loopback re-box
+wait 6000
+plugins run plugin.sessions-sidebar.refresh
+wait 5500
+plugins run plugin.sessions-sidebar.refresh
+wait 2000
+carly lua "local pane = reCheck('attached a second time', 'default · stops in 3 h · $0.08'); assert(reReads() > reTest.reads, 'the listing was not read again'); reTest.reads = reReads(); return 'PASS returning tab shows a current sidebar ' .. pane"
+carly ok
+carly close
+
+# No explicit refresh: an ordinary refresh a minute after the last read reads the listing again, and
+# the next one shows it in the returning tab. A hidden test window runs no timers while idle, so a
+# Carly call stands in for the timer's refresh.
+carly lua "reListing('default', 0.09); reTest.reads = reReads(); return 'the listing costs $0.09'"
+carly ok
+carly close
+wait 62000
+carly lua "return 'an ordinary refresh'"
+carly ok
+carly close
+wait 2000
+carly lua "assert(reReads() > reTest.reads, 'an ordinary refresh a minute later did not read the listing'); return 'PASS the listing is read again a minute later'"
+carly ok
+carly close
+wait 1000
+carly lua "reCheck('a minute later', 'default · stops in 3 h · $0.09'); return 'PASS the returning tab shows the new listing'"
+carly ok
+carly close
+
+# Clean up.
+carly lua "local host = boatHost('re-box'); if host then cx.hosts:disconnect(host.id) end; local titles = boatKv()['sidebar.host-titles.v1'] or {}; titles[tern.json.encode({ 'remote-address', reTest.address })] = nil; boatKvSet('sidebar.host-titles.v1', if next(titles) then titles else nil); boatKvSet('sidebar.boat-commands.v1', boatTest.hook); for _, key in { 'sidebar.boats.v1', 'sidebar.boat-inventory.v1', 'sidebar.boat-details.v1' } do boatKvSet(key, nil) end; for _, entry in tern.fs.list(boatTest.dir) do local name = if type(entry) == 'table' then entry.name else entry; if type(name) == 'string' and string.sub(name, 1, 5) == 'fake-' then tern.fs.remove(boatTest.dir .. '/' .. name) end end; for _, path in { boatTest.request, boatTest.result } do if tern.fs.exists(path) then tern.fs.remove(path) end end; return 'PASS test hook removed'"
+carly ok
+carly close

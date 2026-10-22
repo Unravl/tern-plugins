@@ -13,13 +13,17 @@ local styledWidth = 0
 -- or it clips the gear, + buttons and activity strips.
 local FRAME_WIDTH = 320
 
+-- Tern's default font_size, read once: it does not change while the window runs.
+local defaultFont: number? = nil
+
 local function frameWidth(cx: WindowCx): number
 	local ok, size, default = pcall(function()
-		return cx.settings:get("font_size"), cx.settings:describe("font_size").default
+		return cx.settings:get("font_size"), defaultFont or cx.settings:describe("font_size").default
 	end)
 	if not ok or type(size) ~= "number" or type(default) ~= "number" or default <= 0 then
 		return FRAME_WIDTH
 	end
+	defaultFont = default
 	return math.ceil(FRAME_WIDTH * size / default)
 end
 
@@ -104,7 +108,8 @@ local function chooseTitle(canvas: CanvasInfo): string
 	return title
 end
 
-local function title(cx: WindowCx, pane: number): string
+-- The sidebar's scoped title; nil while its canvas is not in this window's replica.
+local function title(cx: WindowCx, pane: number): string?
 	-- list() omits views; adopting a title does not copy the whole session tree.
 	for _, canvas in cx.canvas:list() do
 		if canvas.pane == pane then
@@ -114,7 +119,7 @@ local function title(cx: WindowCx, pane: number): string
 			return chooseTitle(canvas)
 		end
 	end
-	error("The sidebar canvas is not available in this window")
+	return nil
 end
 
 local function syncStyles(canvases: { CanvasInfo }, width: number)
@@ -208,7 +213,8 @@ local function leftmost(tree: TabTree, owned: { [number]: boolean }, x: number, 
 	return second, secondX
 end
 
-local function sync(cx: WindowCx, pane: number, content: number, mode: SidebarMode): (boolean, string?)
+-- `listed`: the window's canvas list as the caller read it (a refresh reads it once).
+local function sync(cx: WindowCx, pane: number, content: number, mode: SidebarMode, listed: { CanvasInfo }?): (boolean, string?)
 	local tab = cx.session:tab_of(pane)
 	local contentTab = cx.session:tab_of(content)
 	local focus = cx.session:focused()
@@ -220,7 +226,7 @@ local function sync(cx: WindowCx, pane: number, content: number, mode: SidebarMo
 		return false, nil
 	end
 
-	local canvases = cx.canvas:list()
+	local canvases = listed or cx.canvas:list()
 	local sidebar: CanvasInfo? = nil
 	local owned: { [number]: boolean } = {}
 	for _, canvas in canvases do

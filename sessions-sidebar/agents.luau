@@ -53,7 +53,10 @@ local function apply(entry: Tracked, state: State, alert: boolean, active: boole
 	entry.seen = { state = state, alert = alert }
 end
 
-local function read(cx: WindowCx, activeTab: number?)
+-- What a refresh read of the window already (core.luau's Seen): its tabs, and pane key -> listing.
+export type Window = { tabs: { TabInfo }, byPane: { [string]: PaneInfo } }
+
+local function read(cx: WindowCx, activeTab: number?, window: Window?)
 	local agents = cx.agents:list()
 	local present: { [string]: boolean } = {}
 	if #agents == 0 then
@@ -61,7 +64,7 @@ local function read(cx: WindowCx, activeTab: number?)
 		return
 	end
 	local sessionOfTab: { [string]: string } = {}
-	for _, tab in cx.session:tabs() do
+	for _, tab in if window then window.tabs else cx.session:tabs() do
 		sessionOfTab[idKey(tab.id)] = idKey(tab.session)
 	end
 	for _, agent in agents do
@@ -72,11 +75,13 @@ local function read(cx: WindowCx, activeTab: number?)
 			entry = {}
 			tracked[paneKey] = entry
 		end
-		local tab = cx.session:tab_of(agent.pane)
+		-- The window's pane listing has the tab and alert of every agent it lists.
+		local listed = if window then window.byPane[paneKey] else nil
+		local tab = if listed then listed.tab else cx.session:tab_of(agent.pane)
 		local session = if tab then sessionOfTab[idKey(tab)] else nil
 		entry.session = session
 		if tab and session then
-			local info = cx.session:pane(agent.pane)
+			local info = listed or cx.session:pane(agent.pane)
 			apply(entry, agent.state, info ~= nil and info.alert == true, tab == activeTab)
 		end
 	end
@@ -88,8 +93,8 @@ local function read(cx: WindowCx, activeTab: number?)
 end
 
 -- Observes every agent in the window; call once per refresh with the active tab.
-local function observe(cx: WindowCx, activeTab: number?)
-	local ok = pcall(read, cx, activeTab)
+local function observe(cx: WindowCx, activeTab: number?, window: Window?)
+	local ok = pcall(read, cx, activeTab, window)
 	if not ok then
 		-- A failed read yields no marks rather than stale ones or a broken sidebar.
 		table.clear(tracked)

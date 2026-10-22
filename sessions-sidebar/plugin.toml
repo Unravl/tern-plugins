@@ -1,7 +1,7 @@
 id = "sessions-sidebar"
 name = "Sessions Sidebar"
-description = "Customizable per-host sessions sidebar with icons, paths, omp agent status (working spinner, question and finished markers), folding groups, pick-and-place ordering, native editing, and docked, click-tab or hover display."
+description = "Customizable per-host sessions sidebar with icons, paths, omp agent status (working spinner, question and finished markers), folding groups, pick-and-place ordering, native editing, Remove host, a Boat section that manages every boat.dev sandbox of the account as one row each (click to go into it; create with snapshot, size, auto-stop and environment; start, stop, resize, duplicate, auto-stop, snapshots, SSH details, delete; plan usage and defaults), and docked, click-tab or hover display."
 window = "window.luau"
 styles = ["sidebar.css", "drawer.css"]
 schema = 1
-version = "1.8.1"
+version = "1.12.0"

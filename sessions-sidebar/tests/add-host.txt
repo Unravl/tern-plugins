@@ -1,0 +1,73 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab
+# (any display mode). From the plugin folder:
+# tern ctl --control <endpoint> --file tests/add-host.txt
+# Exercises the request/result files of `plugin.sessions-sidebar.add-host` in the plugin data dir
+# ($TERN_CONFIG_DIR/plugin-data/sessions-sidebar, which the isolated window always sets): a missing
+# request, malformed requests, and a request for an already attached loopback host, which must report
+# ok at once and show the requested title. A real first-contact connection is not covered.
+# Adds one loopback remote host; closes nothing.
+ready
+wait 1500
+carly lua "addHostTest = {}; local config = tern.getenv('TERN_CONFIG_DIR'); assert(config, 'TERN_CONFIG_DIR must point at the isolated config'); addHostTest.dir = config .. '/plugin-data/sessions-sidebar'; addHostTest.request = addHostTest.dir .. '/add-host.json'; addHostTest.result = addHostTest.dir .. '/add-host.result.json'; tern.fs.mkdir(addHostTest.dir); for _, path in { addHostTest.request, addHostTest.result } do if tern.fs.exists(path) then tern.fs.remove(path) end end; function addHostResult() assert(tern.fs.exists(addHostTest.result), 'no result file'); return tern.json.decode(tern.fs.read(addHostTest.result)) end; function addHostRequest(value) local text = if type(value) == 'string' then value else tern.json.encode(value); tern.fs.write(addHostTest.request, text) end; return 'PASS isolated plugin data dir ' .. addHostTest.dir"
+carly ok
+carly close
+
+# No request file: nothing happens and no result appears.
+plugins run plugin.sessions-sidebar.add-host
+wait 500
+carly lua "assert(not tern.fs.exists(addHostTest.result), 'missing request wrote a result'); return 'PASS missing request is a no-op'"
+carly ok
+carly close
+
+# Text that is not JSON: ok=false, no id, and the request file is consumed.
+carly lua "addHostRequest('not json'); return 'wrote non-JSON request'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.add-host
+wait 500
+carly lua "local r = addHostResult(); assert(r.ok == false, 'non-JSON request reported ok'); assert(r.id == nil, 'non-JSON request has an id'); assert(r.state == 'invalid', 'state ' .. tostring(r.state)); assert(type(r.error) == 'string', 'no error message'); assert(not tern.fs.exists(addHostTest.request), 'request file was kept'); return 'PASS non-JSON request: ' .. r.error"
+carly ok
+carly close
+
+# Malformed fields keep the request id so the caller can match the failure.
+carly lua "addHostRequest({ id = 'bad-address', address = 'user@2001:db8::1 extra', title = 'Boat Sandbox (bad)', fingerprint = 'SHA256:abc' }); return 'wrote request with a spaced address'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.add-host
+wait 500
+carly lua "local r = addHostResult(); assert(r.id == 'bad-address' and r.ok == false and r.state == 'invalid', tern.json.encode(r)); assert(not tern.fs.exists(addHostTest.request), 'request file was kept'); return 'PASS bad address: ' .. r.error"
+carly ok
+carly close
+carly lua "addHostRequest({ id = 'bad-fingerprint', address = 'user@2001:db8::1', title = 'Boat Sandbox (bad)', fingerprint = 'abc' }); return 'wrote request with a bad fingerprint'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.add-host
+wait 500
+carly lua "local r = addHostResult(); assert(r.id == 'bad-fingerprint' and r.ok == false and r.state == 'invalid', tern.json.encode(r)); return 'PASS bad fingerprint: ' .. r.error"
+carly ok
+carly close
+carly lua "addHostRequest({ id = 'no-title', address = 'user@2001:db8::1', title = '  ', fingerprint = 'SHA256:abc' }); return 'wrote request with a blank title'"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.add-host
+wait 500
+carly lua "local r = addHostResult(); assert(r.id == 'no-title' and r.ok == false and r.state == 'invalid', tern.json.encode(r)); return 'PASS blank title: ' .. r.error"
+carly ok
+carly close
+
+# A host that is already attached and connected: ok at once, titled in the sidebar.
+remote loopback boat-test
+wait 2000
+carly lua "local found; for _, host in cx.hosts:list() do if host.kind == 'remote' and host.address and host.address ~= '' then found = host end end; assert(found, 'no loopback host with an address: ' .. tern.json.encode(cx.hosts:list())); assert(found.state == 'connected', 'loopback state ' .. found.state); addHostTest.address = found.address; addHostRequest({ id = 'loopback', address = found.address, title = 'Boat Sandbox (loopback)', fingerprint = 'SHA256:unused' }); return 'requested loopback host ' .. found.address"
+carly ok
+carly close
+plugins run plugin.sessions-sidebar.add-host
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+carly lua "local r = addHostResult(); assert(r.id == 'loopback' and r.ok == true and r.state == 'connected' and r.error == nil, tern.json.encode(r)); local titles = tern.json.decode(tern.fs.read(addHostTest.dir .. '/kv.json'))['sidebar.host-titles.v1']; assert(titles and titles[tern.json.encode({ 'remote-address', addHostTest.address })] == 'Boat Sandbox (loopback)', 'title alias not saved'); return 'PASS attached host reported connected and titled'"
+carly ok
+carly close
+carly lua "local tab = cx.session:tab_of(cx.session:focused()); local sidebar; for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then sidebar = canvas.pane end end; assert(sidebar, 'no sidebar in the active tab'); local info = cx.canvas:get(sidebar); assert(info and info.view, 'sidebar has no view'); local titles = {}; local function walk(node) local p = node.p or {}; if p.role == 'sessions-sidebar-host-title' then table.insert(titles, p.title) end; for _, child in node.c or {} do walk(child) end end; walk(info.view); assert(table.find(titles, 'Boat Sandbox (loopback)'), 'sidebar host titles: ' .. table.concat(titles, ', ')); return 'PASS sidebar shows ' .. table.concat(titles, ', ')"
+carly ok
+carly close

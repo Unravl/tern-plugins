@@ -73,9 +73,19 @@
 .sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-name"],
 .sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-path"],
 .sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-host-title"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-boat-detail"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-usage-label"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-boats-notice"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-snapshot-name"],
+.sessions-sidebar-root[data-sidebar-mode="click"] [data-role="sessions-sidebar-snapshot-detail"],
 .sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-name"],
 .sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-path"],
-.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-host-title"] {
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-host-title"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-boat-detail"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-usage-label"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-boats-notice"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-snapshot-name"],
+.sessions-sidebar-root[data-sidebar-mode="hover"] [data-role="sessions-sidebar-snapshot-detail"] {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

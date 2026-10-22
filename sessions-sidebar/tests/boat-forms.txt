@@ -1,0 +1,461 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab
+# (any display mode). From the plugin folder:
+# tern ctl --control <endpoint> --file tests/boat-forms.txt
+# The Boat section's forms and operations without paid sandboxes, through the same fake
+# boat-sandbox script as boat-sandbox.txt (the test hook `sidebar.boat-commands.v1`; argv logged with
+# each argument followed by `|`, answers from fake-<mode>.json). Every sandbox is one row under its
+# short name, operated from that row's right-click menu. Checks the exact argv of: New sandbox with
+# every field changed (name, snapshot, size, auto-stop, environment, secrets) and its creating row,
+# connected and tracked as Boat Sandbox (<name>) and shown as <name>; Create without a name asking
+# for it first and using the defaults (its failure toast); Custom… hours and Never; xlarge refused
+# on a $20 plan with nothing run; Save as defaults (and the defaults file the script was pointed
+# at); Defaults… from the header menu; Duplicate (--fork, size changed); Resize (--resize after a
+# Cancel-first confirmation); Start as size (--resume --type); Auto-stop (--extend --hours,
+# --no-auto-stop); Save snapshot (a new name with its saving row and the sandbox busy, an existing
+# one confirmed with --replace, the script's "snapshot exists:" answer asking before replacing); a
+# snapshot's New sandbox from this…, Set as default and Delete snapshot… (Cancel first); Rename…;
+# Remove from Tern. With Show details off, the second lines are only in the tooltips. Adds two
+# loopback remote hosts and disconnects them; removes its fake files, records and cache and puts
+# back the hook it found. Selectors start with `.tn-pane:not(.off)`: hidden tabs keep their sidebars
+# off screen.
+ready
+wait 1500
+carly lua "boatTest = {}; local config = tern.getenv('TERN_CONFIG_DIR'); assert(config, 'TERN_CONFIG_DIR must point at the isolated config'); boatTest.dir = config .. '/plugin-data/sessions-sidebar'; tern.fs.mkdir(boatTest.dir); boatTest.kv = boatTest.dir .. '/kv.json'; boatTest.log = boatTest.dir .. '/fake-boat.log'; boatTest.script = boatTest.dir .. '/fake-boat.sh'; boatTest.defaults = boatTest.dir .. '/fake-defaults.json'; boatTest.copies = boatTest.dir .. '/fake-copies.txt'; boatTest.request = boatTest.dir .. '/add-host.json'; boatTest.result = boatTest.dir .. '/add-host.result.json'; local lines = { [[dir=$(dirname ^$0^)]], [[printf '%s|' ^$@^ >> ^$dir/fake-boat.log^; echo >> ^$dir/fake-boat.log^]], [[mode=${1#--}]], [[if [ -f ^$dir/fake-delay-$mode^ ]; then sleep ^$(cat ^$dir/fake-delay-$mode^)^; fi]], [[if [ ^$mode^ = set-defaults ] && [ -n ^$BOAT_SANDBOX_DEFAULTS^ ]; then printf '%s' ^$2^ > ^$BOAT_SANDBOX_DEFAULTS^; fi]], [[if [ -f ^$dir/fake-$mode.json^ ]; then cat ^$dir/fake-$mode.json^; echo; exit 0; fi]], [[printf '{^ok^:false,^error^:^fake %s refused^}' ^$mode^; echo; exit 1]] }; tern.fs.write(boatTest.script, (string.gsub(table.concat(lines, string.char(10)), '%^', string.char(34)))); for _, path in { boatTest.log, boatTest.request, boatTest.result, boatTest.defaults, boatTest.copies } do if tern.fs.exists(path) then tern.fs.remove(path) end end; for _, entry in tern.fs.list(boatTest.dir) do local name = if type(entry) == 'table' then entry.name else entry; if type(name) == 'string' and string.sub(name, 1, 5) == 'fake-' and name ~= 'fake-boat.sh' then tern.fs.remove(boatTest.dir .. '/' .. name) end end; function boatKv() return if tern.fs.exists(boatTest.kv) then tern.json.decode(tern.fs.read(boatTest.kv)) else {} end; function boatKvSet(key, value) local kv = boatKv(); kv[key] = value; tern.fs.write(boatTest.kv, tern.json.encode(kv)) end; function boatFake(mode, value) local path = boatTest.dir .. '/fake-' .. mode .. '.json'; if value == nil then if tern.fs.exists(path) then tern.fs.remove(path) end else tern.fs.write(path, tern.json.encode(value)) end end; function boatDelay(mode, seconds) local path = boatTest.dir .. '/fake-delay-' .. mode; if seconds then tern.fs.write(path, tostring(seconds)) elseif tern.fs.exists(path) then tern.fs.remove(path) end end; function boatCalls() return if tern.fs.exists(boatTest.log) then tern.fs.read(boatTest.log) else '' end; function boatCalled(argv) return string.find(boatCalls(), argv, 1, true) ~= nil end; function boatCopies() local found = {}; if tern.fs.exists(boatTest.copies) then for line in string.gmatch(tern.fs.read(boatTest.copies), '[^' .. string.char(10) .. ']+') do table.insert(found, tern.json.decode(line)) end end; return found end; function boatIso(offset) return os.date('!%Y-%m-%dT%H:%M:%SZ', os.time() + offset) end; function boatBox(t) return { id = t.id, name = t.name, state = t.state or 'running', rawState = t.raw or 'idle', type = t.type or 'default', vcpu = 4, memoryGB = 8, ip = t.ip, address = t.address, autoStopAt = t.autoStopAt, noAutoStop = t.noAutoStop or false, ttlSeconds = 3600, environment = 'base', createdAt = boatIso(-86400), stoppedAt = t.stoppedAt, dataExpiresAt = t.dataExpiresAt, usage = t.usage or { seconds = 6480, dollars = 0.0648 } } end; boatTest.snaps = { { name = 'snap-a', sizeBytes = 2400000000, createdAt = boatIso(-172800), sourceSandboxId = 'bx_testrun1', status = 'ready', type = 'default' }, { name = 'snap.b', sizeBytes = 1200000000, createdAt = boatIso(-3600), sourceSandboxId = 'bx_testfree1', status = 'ready', type = 'small' } }; boatTest.limits = { quotaSeconds = 2000000, remainingSeconds = 1640000, periodEnd = '2026-11-14T12:00:00.000Z', liveUsageSeconds = 3600, packSeconds = 0, planDollars = 20, activeSandboxes = 1, canStart = true, starts = { day = { limit = 200, remaining = 190, used = 10 }, hour = { limit = 60, remaining = 58, used = 2 } } }; function boatInventory(boxes, opts) opts = opts or {}; boatTest.boxes = boxes; boatFake('inventory', { ok = true, fetchedAt = boatIso(0), sandboxes = boxes, snapshots = opts.snapshots or boatTest.snaps, allowance = opts.allowance or { used = 2, free = 10, pricePerExtraMonthlyDollars = 1.7 }, limits = opts.limits or boatTest.limits, environments = { { name = 'base', isDefault = true }, { name = 'gpu-tools', isDefault = false } }, defaults = opts.defaults or { snapshot = 'snap-a', type = 'default', hours = 24, secrets = true }, errors = opts.errors or {} }) end; function boatView() local tab = cx.session:tab_of(cx.session:focused()); for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then local info = cx.canvas:get(canvas.pane); assert(info and info.view, 'sidebar has no view'); return info.view end end; error('no sidebar in the active tab') end; function boatNodes(role, root) local want = if type(role) == 'table' then role else { role }; local found = {}; local function walk(node) local p = node.p or {}; if p.role and table.find(want, p.role) then table.insert(found, node) end; for _, child in node.c or {} do walk(child) end end; walk(root or boatView()); return found end; function boatText(node) local p = node.p or {}; if p.text then return p.text end; local parts = {}; for _, span in p.spans or {} do table.insert(parts, if type(span) == 'table' then span.t else tostring(span)) end; for _, child in node.c or {} do table.insert(parts, boatText(child)) end; return table.concat(parts) end; function boatRows(root) local section = boatNodes('sessions-sidebar-boats', root)[1]; if not section then return {} end; return boatNodes({ 'sessions-sidebar-boat', 'sessions-sidebar-boat-current' }, section) end; function boatName(row) local node = boatNodes('sessions-sidebar-boat-name', row)[1]; return if node then boatText(node) else '' end; function boatNames() local names = {}; for _, row in boatRows() do table.insert(names, boatName(row)) end; return table.concat(names, '|') end; function boatEntry(name) for _, row in boatRows() do if boatName(row) == name then return row end end; return nil end; function boatMenu(row) local actions = row.p.actions or {}; return table.concat(actions.menu or {}, '|') end; function boatClick(row) local actions = row.p.actions or {}; return actions.click end; function boatLine(row, n) local i = 0; for line in string.gmatch(row.p.title or '', '[^' .. string.char(10) .. ']+') do i += 1; if i == n then return line end end; return '' end; function boatAttached(row) local label = boatNodes('sessions-sidebar-boat-label', row)[1]; return label ~= nil and label.p.attrs['data-boat'] == 'attached' end; function boatMarks(row) local found = {}; for _, mark in boatNodes({ 'sessions-sidebar-question', 'sessions-sidebar-working', 'sessions-sidebar-done' }, row) do table.insert(found, if mark.p.role == 'sessions-sidebar-question' then mark.p.text elseif mark.p.role == 'sessions-sidebar-working' then mark.k else 'done') end; return table.concat(found, '|') end; function boatBadge(row) local badge = boatNodes('sessions-sidebar-boat-state', row)[1]; return if badge then badge.p.text .. '/' .. badge.p.tone else 'none' end; function boatDetail(row) local node = boatNodes('sessions-sidebar-boat-detail', row)[1]; return if node then boatText(node) else '' end; function boatSnap(name) local section = boatNodes('sessions-sidebar-snapshots')[1]; if not section then return nil end; for _, row in boatNodes('sessions-sidebar-snapshot', section) do local n = boatNodes('sessions-sidebar-snapshot-name', row)[1]; if n and boatText(n) == name then return row end end; return nil end; function boatGroups() local titles = {}; for _, group in boatNodes('sessions-sidebar-host') do local title = boatNodes('sessions-sidebar-host-title', group)[1]; table.insert(titles, if title then boatText(title) else '?') end; return titles end; function boatSessionRows() local keys = {}; for _, row in boatNodes({ 'sessions-sidebar-session', 'sessions-sidebar-current' }) do keys[row.p.key] = row.p.role end; return keys end; function boatRecord(id) return (boatKv()['sidebar.boats.v1'] or {})[id] end; function boatHost(name) for _, host in cx.hosts:list() do if host.kind == 'remote' and host.name == name then return host end end; return nil end; function boatHostRows(name) local host = boatHost(name); local found = {}; if host then for _, row in cx.sessions:list() do if row.host == host.id then table.insert(found, row) end end end; return found end; boatTest.hook = boatKv()['sidebar.boat-commands.v1']; boatKvSet('sidebar.boats.v1', nil); boatKvSet('sidebar.boat-snapshots-collapsed.v1', nil); boatKvSet('sidebar.boat-details.v1', nil); boatKvSet('sidebar.boat-commands.v1', { script = { '/bin/sh', boatTest.script }, env = { BOAT_SANDBOX_DEFAULTS = boatTest.defaults }, copies = boatTest.copies }); return 'PASS fake boat-sandbox installed'"
+carly ok
+carly close
+
+# A tracked running sandbox on a loopback host and a tracked stopped one; another loopback host is
+# where the new sandbox will be.
+remote loopback boat-form
+wait 1500
+remote loopback boat-new
+wait 2000
+carly lua "local host, new = boatHost('boat-form'), boatHost('boat-new'); assert(host and host.state == 'connected' and new and new.state == 'connected', 'loopback hosts not connected'); boatTest.form, boatTest.new = host.address, new.address; local titles = boatKv()['sidebar.host-titles.v1'] or {}; titles[tern.json.encode({ 'remote-address', host.address })] = 'Boat Sandbox (form)'; boatKvSet('sidebar.host-titles.v1', titles); boatKvSet('sidebar.boats.v1', { bx_testform1 = { id = 'bx_testform1', name = 'form', title = 'Boat Sandbox (form)', address = host.address, state = 'running' }, bx_testcold1 = { id = 'bx_testcold1', name = 'cold', title = 'Boat Sandbox (cold)', address = 'user@2001:db8::97', state = 'stopped' } }); boatInventory({ boatBox({ id = 'bx_testform1', name = 'form', address = host.address, autoStopAt = boatIso(7300) }), boatBox({ id = 'bx_testcold1', name = 'cold', state = 'stopped', raw = 'stopped', stoppedAt = boatIso(-600), dataExpiresAt = boatIso(13 * 86400) }) }); return 'tracked sandboxes and fake inventory'"
+carly ok
+carly close
+carly lua "cx.hosts:switch('local'); return 'switched to This PC'"
+carly ok
+carly close
+wait 5500
+plugins run plugin.sessions-sidebar.refresh
+wait 2500
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+carly lua "local form = boatEntry('form'); assert(form and form.p.key == 'boat-bx_testform1' and boatAttached(form), 'running sandbox is not its attached row'); assert(boatBadge(form) == 'none', 'form badge ' .. boatBadge(form)); local cold = boatEntry('cold'); assert(cold and boatBadge(cold) == 'stopped/muted', 'cold sandbox'); for _, title in boatGroups() do assert(title ~= 'Boat Sandbox (form)' and title ~= 'boat-form', 'form is also an ordinary host group') end; return 'PASS tracked sandboxes listed'"
+carly ok
+carly close
+
+# New sandbox from the + button, every field changed; the summary returns after each one. The fake
+# create waits 3 s, so its creating row shows, then answers with the boat-new host's address. The
+# listing does not have the new sandbox: its details come from what the form asked for.
+carly lua "boatDelay('no-tern', 3); boatFake('no-tern', { ok = true, error = tern.json.null, id = 'bx_testnew1', ip = '127.0.0.1', address = boatTest.new, fingerprint = 'SHA256:unused', title = tern.json.null, state = 'running', name = 'form test', type = 'small', snapshot = 'snap.b' }); return 'fake create'"
+carly ok
+carly close
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-add']"
+wait 1200
+tree [role=option]
+picker down 1
+picker enter
+wait 1200
+type "form test"
+key Enter
+wait 1200
+picker down 2
+picker enter
+wait 1200
+tree [role=option]
+picker down 1
+picker enter
+wait 1200
+picker down 3
+picker enter
+wait 1200
+tree [role=option]
+picker enter
+wait 1200
+picker down 4
+picker enter
+wait 1200
+tree [role=option]
+picker down 2
+picker enter
+wait 1200
+picker down 5
+picker enter
+wait 1200
+tree [role=option]
+picker down 2
+picker enter
+wait 1200
+picker down 6
+picker enter
+wait 1200
+picker down 1
+picker enter
+wait 1200
+tree [role=option]
+picker enter
+wait 1200
+carly lua "local row = boatEntry('form test'); assert(row and string.sub(row.p.key, 1, 9) == 'creating-', 'no creating row: ' .. boatNames()); assert(row.p.role == 'sessions-sidebar-boat', 'creating row role ' .. row.p.role); assert(boatBadge(row) == 'creating/pending', 'badge ' .. boatBadge(row)); assert(boatDetail(row) == '', 'a second line while Show details is off'); assert(string.find(row.p.title, '(small · snap.b)', 1, true), 'creating tooltip ' .. row.p.title); assert(boatNodes('sessions-sidebar-boat-status', row)[1].k == 'spinner', 'no spinner'); return 'PASS creating row with a spinner'"
+carly ok
+carly close
+wait 4500
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+carly lua "assert(boatCalled('--no-tern|--from|snap.b|--type|small|--hours|8|--environment|gpu-tools|--no-env|form test|'), 'create argv: ' .. boatCalls()); local record = boatRecord('bx_testnew1'); assert(record and record.name == 'form test' and record.title == 'Boat Sandbox (form test)' and record.address == boatTest.new and record.state == 'running', tern.json.encode(record)); local row = boatEntry('form test'); assert(row and row.p.key == 'boat-bx_testnew1' and boatAttached(row) and boatBadge(row) == 'none', 'new sandbox not connected'); assert(boatLine(row, 2) == 'small · stops in 8 h · $0.00', 'new sandbox tooltip ' .. row.p.title); boatDelay('no-tern', nil); boatFake('no-tern', nil); return 'PASS New sandbox ran the chosen argv and connected Boat Sandbox (form test), shown as asked for'"
+carly ok
+carly close
+
+# Create without a name asks for it first; the defaults fill the rest. The fake create fails: the
+# error toast carries its text and nothing is recorded.
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-add']"
+wait 1200
+picker enter
+wait 1200
+type "named later"
+key Enter
+wait 1500
+tree .toast
+click ".toast.err"
+carly lua "assert(boatCalled('--no-tern|--from|snap-a|--type|default|--hours|24|named later|'), 'default argv: ' .. boatCalls()); for id in boatKv()['sidebar.boats.v1'] do assert(id == 'bx_testform1' or id == 'bx_testcold1' or id == 'bx_testnew1', 'recorded ' .. id) end; assert(boatEntry('named later') == nil, 'the failed create is still listed'); return 'PASS Create without a name asked for it and used the defaults'"
+carly ok
+carly close
+
+# Custom… hours, then Never.
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-add']"
+wait 1200
+picker down 1
+picker enter
+wait 1200
+type "custom hours"
+key Enter
+wait 1200
+picker down 4
+picker enter
+wait 1200
+picker down 8
+picker enter
+wait 1200
+type "6"
+key Enter
+wait 1200
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--no-tern|--from|snap-a|--type|default|--hours|6|custom hours|'), 'custom argv: ' .. boatCalls()); return 'PASS Custom auto-stop hours'"
+carly ok
+carly close
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-add']"
+wait 1200
+picker down 1
+picker enter
+wait 1200
+type "never stop"
+key Enter
+wait 1200
+picker down 4
+picker enter
+wait 1200
+picker down 7
+picker enter
+wait 1200
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--no-tern|--from|snap-a|--type|default|--no-auto-stop|never stop|'), 'never argv: ' .. boatCalls()); return 'PASS Never runs --no-auto-stop'"
+carly ok
+carly close
+
+# xlarge needs the $100 plan: on the fake $20 plan it is refused with a toast and nothing runs.
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-add']"
+wait 1200
+picker down 3
+picker enter
+wait 1200
+picker down 3
+picker enter
+wait 1200
+tree .toast
+picker esc
+wait 500
+click ".toast.err"
+carly lua "assert(not boatCalled('xlarge'), 'xlarge ran: ' .. boatCalls()); return 'PASS xlarge refused on the $20 plan'"
+carly ok
+carly close
+
+# Save as defaults writes the form (not the name) through --set-defaults into the file the hook's
+# BOAT_SANDBOX_DEFAULTS names; then Defaults… from the header menu changes the auto-stop.
+carly lua "boatFake('set-defaults', { ok = true, error = tern.json.null, defaults = { snapshot = 'snap-a', type = 'large', hours = 24, environment = tern.json.null, secrets = true }, file = boatTest.defaults }); return 'fake set-defaults'"
+carly ok
+carly close
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-add']"
+wait 1200
+picker down 3
+picker enter
+wait 1200
+picker down 2
+picker enter
+wait 1200
+picker down 7
+picker enter
+wait 1500
+picker esc
+wait 500
+carly lua "local saved = tern.json.decode(tern.fs.read(boatTest.defaults)); assert(saved.snapshot == 'snap-a' and saved.type == 'large' and saved.hours == 24 and saved.environment == nil and saved.secrets == true and saved.name == nil, 'defaults file ' .. tern.fs.read(boatTest.defaults)); assert(boatCalled('--set-defaults|{'), 'no --set-defaults: ' .. boatCalls()); return 'PASS Save as defaults wrote ' .. tern.fs.read(boatTest.defaults)"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boats-header']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(2)"
+wait 1200
+tree [role=option]
+picker down 2
+picker enter
+wait 1200
+picker down 1
+picker enter
+wait 1200
+picker down 5
+picker enter
+wait 1500
+carly lua "local saved = tern.json.decode(tern.fs.read(boatTest.defaults)); assert(saved.hours == 4 and saved.snapshot == 'snap-a' and saved.type == 'default' and saved.secrets == true, 'defaults file ' .. tern.fs.read(boatTest.defaults)); return 'PASS Defaults… saved 4 h auto-stop'"
+carly ok
+carly close
+
+# Duplicate the running sandbox as small (the second item of its row's menu): --fork with the
+# suggested name.
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+tree [role=menuitem]
+click "[role=menu] [role=menuitem]:nth-of-type(2)"
+wait 1200
+tree [role=option]
+picker down 2
+picker enter
+wait 1200
+picker enter
+wait 1200
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--fork|bx_testform1|--type|small|--hours|24|form copy|'), 'fork argv: ' .. boatCalls()); return 'PASS Duplicate ran --fork'"
+carly ok
+carly close
+
+# Resize asks for the size, then confirms with Cancel first.
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(4)"
+wait 1200
+picker down 2
+picker enter
+wait 1200
+tree [role=option]
+picker enter
+wait 1200
+carly lua "assert(not boatCalled('--resize|'), 'Cancel resized'); return 'PASS Resize cancelled'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(4)"
+wait 1200
+picker down 2
+picker enter
+wait 1200
+picker down
+picker enter
+wait 1500
+tree .toast
+carly lua "assert(boatCalled('--resize|bx_testform1|--type|large|'), 'resize argv: ' .. boatCalls()); local record = boatRecord('bx_testform1'); assert(record.error == 'fake resize refused', tern.json.encode(record)); return 'PASS Resize ran --resize --type large'"
+carly ok
+carly close
+
+# Start as size… on the stopped sandbox.
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testcold1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(2)"
+wait 1200
+picker down 2
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--resume|bx_testcold1|--type|large|'), 'start-as argv: ' .. boatCalls()); return 'PASS Start as size ran --resume --type large'"
+carly ok
+carly close
+
+# The resize disconnected the host before its (failed) run: attach it again.
+remote loopback boat-form
+wait 2000
+carly lua "cx.hosts:switch('local'); return 'switched to This PC'"
+carly ok
+carly close
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+carly lua "local form = boatEntry('form'); assert(form and form.p.key == 'boat-bx_testform1' and boatAttached(form), 'not attached again'); return 'PASS attached again'"
+carly ok
+carly close
+
+# Auto-stop…: Stop in 4 hours, then Never.
+carly lua "boatFake('extend', { ok = true, error = tern.json.null, id = 'bx_testform1', autoStopAt = boatIso(14400), noAutoStop = false }); return 'fake extend'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(3)"
+wait 1200
+tree [role=option]
+picker down 1
+picker enter
+wait 1500
+tree .toast
+carly lua "assert(boatCalled('--extend|bx_testform1|--hours|4|'), 'extend argv: ' .. boatCalls()); return 'PASS Auto-stop ran --extend --hours 4'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(3)"
+wait 1200
+picker down 7
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--extend|bx_testform1|--no-auto-stop|'), 'extend never argv: ' .. boatCalls()); return 'PASS Auto-stop Never ran --extend --no-auto-stop'"
+carly ok
+carly close
+
+# Save snapshot…: a new name (its saving row shows, and the sandbox is busy, while the fake waits 3 s).
+carly lua "boatDelay('snapshot', 3); boatFake('snapshot', { ok = true, error = tern.json.null, id = 'bx_testform1', snapshot = { name = 'form-snap', sizeBytes = 2300000000, createdAt = boatIso(0) } }); return 'fake snapshot'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(1)"
+wait 1200
+type "form-snap"
+key Enter
+wait 1200
+carly lua "local row = boatSnap('form-snap'); assert(row and string.sub(row.p.key, 1, 7) == 'saving-', 'no saving row'); assert(boatBadge(row) == 'saving/pending', 'badge ' .. boatBadge(row)); local form = boatEntry('form'); assert(boatBadge(form) == 'saving/pending', 'sandbox not busy: ' .. boatBadge(form)); assert(boatMenu(form) == 'Copy sandbox ID|Rename…', 'busy menu ' .. boatMenu(form)); assert(boatClick(form) == nil, 'a busy sandbox is clickable'); return 'PASS saving row while the snapshot saves'"
+carly ok
+carly close
+wait 3500
+carly lua "assert(boatCalled('--snapshot|bx_testform1|form-snap|'), 'snapshot argv: ' .. boatCalls()); assert(boatSnap('form-snap') == nil or string.sub(boatSnap('form-snap').p.key, 1, 7) ~= 'saving-', 'saving row stayed'); boatDelay('snapshot', nil); return 'PASS Save snapshot ran --snapshot'"
+carly ok
+carly close
+
+# An existing name asks first (Cancel first), then replaces.
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(1)"
+wait 1200
+type "snap-a"
+key Enter
+wait 1200
+tree [role=option]
+picker down
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--snapshot|bx_testform1|snap-a|--replace|'), 'replace argv: ' .. boatCalls()); return 'PASS an existing snapshot name is replaced with --replace after confirming'"
+carly ok
+carly close
+
+# The script's own "snapshot exists:" answer asks before replacing too; Cancel keeps it.
+carly lua "boatFake('snapshot', { ok = false, error = 'snapshot exists: snap-z; pass --replace to overwrite it', id = 'bx_testform1' }); return 'fake exists'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(1)"
+wait 1200
+type "snap-z"
+key Enter
+wait 1500
+tree [role=option]
+picker enter
+wait 1000
+carly lua "assert(boatCalled('--snapshot|bx_testform1|snap-z|'), 'snap-z not tried'); assert(not boatCalled('snap-z|--replace|'), 'replaced without asking'); boatFake('snapshot', nil); return 'PASS snapshot exists: asks before replacing'"
+carly ok
+carly close
+
+# A snapshot's menu: Set as default, Delete snapshot… (Cancel first); clicking it opens New sandbox
+# from it. Then Delete snapshot… for real: its row goes at once and stays gone, though the listing
+# read since (started before the delete) still has it.
+carly lua "boatFake('snapshot-rm', { ok = true, error = tern.json.null, snapshot = 'snap.b' }); return 'fake snapshot-rm'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-snapshot'][title^='snap.b']"
+wait 500
+tree [role=menuitem]
+click "[role=menu] [role=menuitem]:nth-of-type(2)"
+wait 1500
+carly lua "assert(boatCalled((string.gsub('--set-defaults|{^snapshot^:^snap.b^}|', '%^', string.char(34)))), 'set default argv: ' .. boatCalls()); return 'PASS Set as default'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-snapshot'][title^='snap.b']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(4)"
+wait 1200
+picker enter
+wait 1000
+carly lua "assert(not boatCalled('--snapshot-rm|'), 'Cancel deleted'); return 'PASS Delete snapshot cancelled'"
+carly ok
+carly close
+move 8 300
+wait 800
+click ".tn-pane:not(.off) [data-role='sessions-sidebar-snapshot'][title^='snap.b']"
+wait 1200
+picker down 1
+picker enter
+wait 1200
+type "from snap"
+key Enter
+wait 1200
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--no-tern|--from|snap.b|--type|default|--hours|24|from snap|'), 'from snapshot argv: ' .. boatCalls()); return 'PASS clicking a snapshot makes a sandbox from it'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-snapshot'][title^='snap.b']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(4)"
+wait 1200
+picker down
+picker enter
+wait 1500
+carly lua "assert(boatCalled('--snapshot-rm|snap.b|'), 'snapshot-rm argv: ' .. boatCalls()); assert(boatSnap('snap.b') == nil, 'the deleted snapshot is listed again'); assert(boatSnap('snap-a'), 'snap-a is gone too'); local figure = boatText(boatNodes('sessions-sidebar-snapshots-allowance')[1]); assert(figure == '1 of 10 free', 'allowance ' .. figure); return 'PASS Delete snapshot ran --snapshot-rm and its row stays gone'"
+carly ok
+carly close
+
+# Rename… sets the name the row shows; Remove from Tern disconnects the host but keeps the sandbox.
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(9)"
+wait 1200
+tree input
+type "Renamed Form"
+key Enter
+wait 1500
+carly lua "local record = boatRecord('bx_testform1'); assert(record.title == 'Renamed Form', tern.json.encode(record)); local titles = boatKv()['sidebar.host-titles.v1'] or {}; assert(titles[tern.json.encode({ 'remote-address', boatTest.form })] == 'Renamed Form', 'alias not renamed'); local row = boatEntry('Renamed Form'); assert(row and row.p.key == 'boat-bx_testform1', 'not listed under the new name: ' .. boatNames()); return 'PASS Rename…'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+tree [role=menuitem]
+click "[role=menu] [role=menuitem]:nth-of-type(11)"
+wait 2000
+carly lua "assert(boatHost('boat-form') == nil, 'host still attached'); local record = boatRecord('bx_testform1'); assert(record, 'Remove from Tern forgot the sandbox'); local row = boatEntry('Renamed Form'); assert(row and row.p.key == 'boat-bx_testform1' and not boatAttached(row), 'not listed as a sandbox to connect'); assert(string.find(boatMenu(row), 'Connect|', 1, true) == 1, 'menu ' .. boatMenu(row)); assert(boatClick(row) == 'open-sandbox', 'a running sandbox not attached here is not clickable'); return 'PASS Remove from Tern disconnected the host and kept the sandbox'"
+carly ok
+carly close
+
+# Clean up.
+carly lua "local new = boatHost('boat-new'); if new then cx.hosts:disconnect(new.id) end; local titles = boatKv()['sidebar.host-titles.v1'] or {}; for _, address in { boatTest.form, boatTest.new } do titles[tern.json.encode({ 'remote-address', address })] = nil end; boatKvSet('sidebar.host-titles.v1', if next(titles) then titles else nil); boatKvSet('sidebar.boat-commands.v1', boatTest.hook); for _, key in { 'sidebar.boats.v1', 'sidebar.boat-inventory.v1', 'sidebar.boat-details.v1' } do boatKvSet(key, nil) end; for _, entry in tern.fs.list(boatTest.dir) do local name = if type(entry) == 'table' then entry.name else entry; if type(name) == 'string' and string.sub(name, 1, 5) == 'fake-' then tern.fs.remove(boatTest.dir .. '/' .. name) end end; return 'PASS cleaned up'"
+carly ok
+carly close

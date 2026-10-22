@@ -1,0 +1,49 @@
+# Run only in a fresh isolated native window with sessions-sidebar linked and an active shell tab
+# (any display mode). From the plugin folder:
+# tern ctl --control <endpoint> --file tests/remove-host.txt
+# Remove host… on an ordinary remote host (not a boat sandbox): its heading menu offers it last,
+# the confirmation lists Cancel first (↵ keeps the host), and confirming disconnects the host, so
+# Tern forgets it, and forgets the host's saved sidebar title, title color and folding. Adds one
+# loopback remote host and removes it through the sidebar.
+ready
+wait 1500
+carly lua "rmTest = {}; local config = tern.getenv('TERN_CONFIG_DIR'); assert(config, 'TERN_CONFIG_DIR must point at the isolated config'); local dir = config .. '/plugin-data/sessions-sidebar'; tern.fs.mkdir(dir); rmTest.kv = dir .. '/kv.json'; function rmKv() return if tern.fs.exists(rmTest.kv) then tern.json.decode(tern.fs.read(rmTest.kv)) else {} end; function rmKvSet(key, value) local kv = rmKv(); kv[key] = value; tern.fs.write(rmTest.kv, tern.json.encode(kv)) end; function rmView() local tab = cx.session:tab_of(cx.session:focused()); for _, canvas in cx.canvas:list() do if canvas.owner == 'sessions-sidebar' and cx.session:tab_of(canvas.pane) == tab then local info = cx.canvas:get(canvas.pane); assert(info and info.view, 'sidebar has no view'); return info.view end end; error('no sidebar in the active tab') end; function rmNodes(role, root) local found = {}; local function walk(node) local p = node.p or {}; if p.role == role then table.insert(found, node) end; for _, child in node.c or {} do walk(child) end end; walk(root or rmView()); return found end; function rmHost(name) for _, host in cx.hosts:list() do if host.kind == 'remote' and host.name == name then return host end end; return nil end; function rmHeading(title) for _, heading in rmNodes('sessions-sidebar-heading') do if heading.p.title == title then return heading end end; return nil end; return 'PASS helpers'"
+carly ok
+carly close
+remote loopback rm-host
+wait 2000
+carly lua "local host = rmHost('rm-host'); assert(host and host.state == 'connected', 'no connected loopback host rm-host'); rmTest.key = tern.json.encode({ 'remote-address', host.address }); for _, pair in { { 'sidebar.host-titles.v1', 'Scratch Box' }, { 'sidebar.host-title-colors.v1', 'teal' }, { 'sidebar.host-collapsed.v1', false } } do local saved = rmKv()[pair[1]] or {}; saved[rmTest.key] = pair[2]; rmKvSet(pair[1], saved) end; return 'titled, colored and unfolded the loopback host'"
+carly ok
+carly close
+carly lua "cx.hosts:switch('local'); return 'switched to This PC'"
+carly ok
+carly close
+wait 1000
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+carly lua "local heading = rmHeading('Scratch Box'); assert(heading, 'no Scratch Box heading'); local menu = table.concat(heading.p.actions.menu, '|'); assert(menu == 'new-session|move-host|rename-host-title|reset-host-title|change-title-color|remove-host…', 'menu ' .. menu); local local_ = rmHeading('This PC'); assert(local_ and not string.find(table.concat(local_.p.actions.menu, '|'), 'remove-host', 1, true), 'This PC offers Remove host'); return 'PASS Remove host… offered on the remote host only'"
+carly ok
+carly close
+a11y show-context-menu "[data-role='sessions-sidebar-heading'][title='Scratch Box']"
+wait 500
+tree [role=menuitem]
+click "[role=menu] [role=menuitem]:nth-of-type(6)"
+wait 1200
+tree [role=option]
+picker enter
+wait 1500
+carly lua "assert(rmHost('rm-host'), 'Cancel removed the host'); assert((rmKv()['sidebar.host-titles.v1'] or {})[rmTest.key] == 'Scratch Box', 'Cancel forgot the title'); return 'PASS Cancel keeps the host'"
+carly ok
+carly close
+a11y show-context-menu "[data-role='sessions-sidebar-heading'][title='Scratch Box']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(6)"
+wait 1200
+picker down
+picker enter
+wait 2000
+plugins run plugin.sessions-sidebar.refresh
+wait 1000
+carly lua "assert(rmHost('rm-host') == nil, 'host still attached'); local kv = rmKv(); for _, key in { 'sidebar.host-titles.v1', 'sidebar.host-title-colors.v1', 'sidebar.host-collapsed.v1' } do assert((kv[key] or {})[rmTest.key] == nil, key .. ' kept for the removed host') end; assert(rmHeading('Scratch Box') == nil, 'still listed'); return 'PASS Remove host… disconnected the host and forgot its preferences'"
+carly ok
+carly close

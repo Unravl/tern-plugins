@@ -29,7 +29,10 @@
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"],
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"],
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-add"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-menu"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshots-toggle"] {
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
@@ -57,7 +60,10 @@
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-tab"]:hover,
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-settings"]:hover,
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"]:hover,
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"]:hover {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"]:hover,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-add"]:hover,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-menu"]:hover,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshots-toggle"]:hover {
 	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
 	color: var(--t1);
 }
@@ -71,7 +77,10 @@
 }
 
 [data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-toggle"],
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-add"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-menu"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshots-toggle"] {
 	width: 20px;
 	height: 20px;
 	padding: 0;
@@ -218,9 +227,216 @@
 	flex-shrink: 0;
 }
 
-[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] .ico {
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-new"] .ico,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-add"] .ico,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-menu"] .ico {
 	width: 14px;
 	height: 14px;
+}
+
+/* ---------- Boat section: boat.dev sandboxes above the other hosts ---------- */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats"] {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	min-width: 0;
+	flex-shrink: 0;
+	padding-bottom: 8px;
+	border-bottom: 1px solid var(--l2);
+}
+
+/* A section label in the host headings' rhythm: same insets and 20px buttons, quieter type. */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-header"] {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	padding: 2px 8px 2px 10px;
+	flex-shrink: 0;
+	color: var(--t3);
+	font-size: 11px;
+	line-height: 16px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-title"] {
+	min-width: 0;
+	margin-right: 4px;
+}
+
+/* Plan compute: a full-width 4px bar (tinted warning from 80%, error from 95%) over its figures. */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-usage"] {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+	padding: 4px 10px 6px;
+	flex-shrink: 0;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-usage-bar"] {
+	width: 100%;
+	min-width: 0;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-usage-label"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-usage-unavailable"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-notice"] {
+	min-width: 0;
+	color: var(--t3);
+	font-size: 11px;
+	line-height: 14px;
+	font-weight: 400;
+	font-variant-numeric: tabular-nums;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-usage-unavailable"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boats-notice"] {
+	padding: 2px 10px 6px;
+	flex-shrink: 0;
+}
+
+/* One row per sandbox: status icon, name (with Show details, its second line: size · auto-stop or
+   disk · cost), a badge unless it runs, agent marks; current like a session row while the
+   current session is on it. */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-current"] {
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: 32px;
+	padding: 4px 10px 4px 8px;
+	gap: 8px;
+	border-left: 2px solid transparent;
+	flex-shrink: 0;
+}
+
+/* .sf-act: Tern's class for a node with a click action (a click opens the sandbox). */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat"].sf-act,
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-current"].sf-act {
+	cursor: pointer;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat"].sf-act:hover {
+	background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-current"] {
+	background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+	border-left-color: var(--accent);
+	font-weight: 600;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-label"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-host-label"][data-boat] {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: center;
+	gap: 1px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-name"] {
+	min-width: 0;
+	font-size: 13px;
+	line-height: 16px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-detail"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshot-detail"] {
+	min-width: 0;
+	color: var(--t3);
+	font-size: 11px;
+	line-height: 14px;
+	font-weight: 400;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Not connected in this window (stopped, running elsewhere, failed, being created): muted. */
+[data-role="sessions-sidebar"] [data-boat="detached"] [data-role="sessions-sidebar-boat-name"] {
+	color: var(--t3);
+}
+
+/* Stands where an attached host's toggle is, so titles line up. */
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-status"] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	flex-shrink: 0;
+	color: var(--t3);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-status"] .ico {
+	width: 14px;
+	height: 14px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-boat-state"],
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshot-default"] {
+	flex-shrink: 0;
+}
+
+/* Snapshots: a folding list under the sandboxes, its heading in the host headings' rhythm. */
+[data-role="sessions-sidebar"] .sf-col[data-role="sessions-sidebar-snapshots"] {
+	gap: 0;
+	min-width: 0;
+	flex-shrink: 0;
+	margin-top: 4px;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshots-heading"] {
+	min-width: 0;
+	padding: 5px 8px;
+	gap: 6px;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshots-title"] {
+	min-width: 0;
+	color: var(--t2);
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 600;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshots-allowance"] {
+	min-width: 0;
+	color: var(--t3);
+	font-size: 11px;
+	line-height: 16px;
+	font-weight: 400;
+	font-variant-numeric: tabular-nums;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshot"] {
+	box-sizing: border-box;
+	min-width: 0;
+	padding: 4px 8px;
+	gap: 6px;
+	border-radius: 4px;
+	flex-shrink: 0;
+	user-select: none;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshot"].sf-act {
+	cursor: pointer;
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshot"].sf-act:hover {
+	background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+[data-role="sessions-sidebar"] [data-role="sessions-sidebar-snapshot-name"] {
+	min-width: 0;
+	color: var(--t1);
+	font-size: 12px;
+	line-height: 16px;
 }
 
 /* ---------- move mode ---------- */
@@ -271,13 +487,15 @@
 /* Child buttons carry no actions while moving: they must look inert and defer to their row. */
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-icon"],
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-toggle"],
-[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"] {
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"],
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-snapshots-toggle"] {
 	cursor: inherit;
 }
 
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-icon"]:hover,
 [data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-toggle"]:hover,
-[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"]:hover {
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-host-new"]:hover,
+[data-role="sessions-sidebar"]:not([data-sidebar-moving=""]) [data-role="sessions-sidebar-snapshots-toggle"]:hover {
 	background-color: transparent;
 	color: var(--t2);
 }
