@@ -278,20 +278,21 @@ local function validName(value: string): string?
 	return name
 end
 
--- A snapshot name: 1–64 letters, digits, ".", "_" or "-".
+-- A snapshot name as boat takes it: 1–63 lowercase letters, digits or "-", not starting with "-".
+-- Letters typed in capitals are lowercased (boat has none), anything else outside that is refused.
 local function validSnapshotName(value: string): string?
-	local name = string.match(value, "^%s*(.-)%s*$") or ""
-	if #name < 1 or #name > 64 or string.find(name, "[^%w._%-]") then
+	local name = string.lower(string.match(value, "^%s*(.-)%s*$") or "")
+	if #name < 1 or #name > 63 or string.find(name, "[^a-z0-9%-]") or string.sub(name, 1, 1) == "-" then
 		return nil
 	end
 	return name
 end
 
--- `value` made into a valid name of at most `limit` characters: runs of whitespace become one
--- space (`spaces`) or "-", other characters "-".
+-- `value` made into a valid name of at most `limit` characters: a sandbox name (`spaces`) keeps one
+-- space for each run of whitespace, a snapshot name is lowercased; other characters become "-".
 local function cleanName(value: string, spaces: boolean, limit: number): string
-	local name = string.gsub(value, "%s+", if spaces then " " else "-")
-	name = string.gsub(name, if spaces then "[^%w ._%-]" else "[^%w._%-]", "-")
+	local name = if spaces then string.gsub(value, "%s+", " ") else string.lower(value)
+	name = string.gsub(name, if spaces then "[^%w ._%-]" else "[^a-z0-9%-]", "-")
 	name = string.gsub(name, "%-%-+", "-")
 	name = string.gsub(name, "^[%s%-]+", "")
 	name = string.gsub(string.sub(name, 1, limit), "[%s%-]+$", "")

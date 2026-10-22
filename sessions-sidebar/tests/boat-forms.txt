@@ -12,10 +12,11 @@
 # at); Defaults… from the header menu; Duplicate (--fork, size changed); Resize (--resize after a
 # Cancel-first confirmation); Start as size (--resume --type); Auto-stop (--extend --hours,
 # --no-auto-stop); Save snapshot (a new name with its saving row and the sandbox busy, an existing
-# one confirmed with --replace, the script's "snapshot exists:" answer asking before replacing); a
-# snapshot's New sandbox from this…, Set as default and Delete snapshot… (Cancel first); Rename…;
-# Remove from Tern. With Show details off, the second lines are only in the tooltips. Adds two
-# loopback remote hosts and disconnects them; removes its fake files, records and cache and puts
+# one confirmed with --replace, the script's "snapshot exists:" answer asking before replacing, a
+# name typed in capitals saved lowercase as boat requires, a name with "_" refused before anything
+# runs); a snapshot's New sandbox from this…, Set as default and Delete snapshot… (Cancel first);
+# Rename…; Remove from Tern. With Show details off, the second lines are only in the tooltips. Adds
+# two loopback remote hosts and disconnects them; removes its fake files, records and cache and puts
 # back the hook it found. Selectors start with `.tn-pane:not(.off)`: hidden tabs keep their sidebars
 # off screen.
 ready
@@ -382,6 +383,34 @@ tree [role=option]
 picker enter
 wait 1000
 carly lua "assert(boatCalled('--snapshot|bx_testform1|snap-z|'), 'snap-z not tried'); assert(not boatCalled('snap-z|--replace|'), 'replaced without asking'); boatFake('snapshot', nil); return 'PASS snapshot exists: asks before replacing'"
+carly ok
+carly close
+
+# boat takes only lowercase letters, digits and "-": a name with "_" is refused with a toast before
+# anything runs, and one typed in capitals is saved lowercase.
+carly lua "boatFake('snapshot', { ok = true, error = tern.json.null, id = 'bx_testform1', snapshot = { name = 'form-snap2', sizeBytes = 2300000000, createdAt = boatIso(0) } }); return 'fake snapshot'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(1)"
+wait 1200
+type "Form_Snap"
+key Enter
+wait 1200
+tree .toast
+click ".toast.err"
+carly lua "assert(not boatCalled('Form_Snap|') and not boatCalled('form_snap|'), 'an invalid name ran: ' .. boatCalls()); return 'PASS a snapshot name with _ is refused before anything runs'"
+carly ok
+carly close
+a11y show-context-menu ".tn-pane:not(.off) [data-role='sessions-sidebar-boat'][title*='bx_testform1'], .tn-pane:not(.off) [data-role='sessions-sidebar-boat-current'][title*='bx_testform1']"
+wait 500
+click "[role=menu] [role=menuitem]:nth-of-type(1)"
+wait 1200
+type "Form-Snap2"
+key Enter
+wait 1500
+carly lua "assert(boatCalled('--snapshot|bx_testform1|form-snap2|'), 'snapshot argv: ' .. boatCalls()); assert(not boatCalled('Form-Snap2|'), 'capitals passed to boat'); boatFake('snapshot', nil); return 'PASS a snapshot name typed in capitals is saved lowercase'"
 carly ok
 carly close
 

@@ -1359,17 +1359,17 @@ local function saveSnapshot(cx: WindowCx, info: Info, name: string, replace: boo
 end
 
 local function snapshotFrom(cx: WindowCx, info: Info)
-	local base = boats.cleanName(info.name, false, 50)
+	local base = boats.cleanName(info.name, false, 49)
 	local suggested = (if base ~= "" then base .. "-" else "") .. boats.stamp(boats.epochNow())
 	env.prompt(cx, "naming the snapshot", {
 		value = suggested,
-		placeholder = "Snapshot name for " .. info.title .. " (letters, digits, . _ -)",
+		placeholder = "Snapshot name for " .. info.title .. " (lowercase letters, digits, -)",
 		icon = "layers",
 		action = "save",
 	}, function(value: string, fresh: WindowCx)
 		local name = boats.validSnapshotName(value)
 		if not name then
-			fresh:toast("error", "Use 1–64 letters, digits, '.', '_' or '-'", "No snapshot was saved.")
+			fresh:toast("error", "Use 1–63 lowercase letters, digits or '-'", "Not starting with '-'. No snapshot was saved.")
 			return
 		end
 		local live = infoOf(fresh, info.id)
